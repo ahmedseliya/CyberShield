@@ -1,6 +1,7 @@
 const axios = require('axios');
 
-exports.handler = async function (event, context) {
+// The only change is on this next line
+module.exports.handler = async function (event, context) {
     // This is your secret key, which Netlify will provide securely.
     const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
 
