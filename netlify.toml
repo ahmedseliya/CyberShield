@@ -2,3 +2,6 @@
   command = "npm run build"
   functions = "netlify/functions"
   publish = "build"
+
+[functions]
+  node_bundler = "esbuild"
