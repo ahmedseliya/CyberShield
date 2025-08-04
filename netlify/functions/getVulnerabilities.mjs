@@ -1,7 +1,6 @@
-const axios = require('axios');
+import axios from 'axios';
 
-// The only change is on this next line
-module.exports.handler = async function (event, context) {
+export default async (req, context) => {
     // This is your secret key, which Netlify will provide securely.
     const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
 
@@ -15,15 +14,14 @@ module.exports.handler = async function (event, context) {
             }
         );
 
-        return {
-            statusCode: 200,
-            body: JSON.stringify(response.data)
-        };
+        return new Response(JSON.stringify(response.data), {
+            headers: { "Content-Type": "application/json" }
+        });
 
     } catch (error) {
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: "Failed to fetch data." })
-        };
+        return new Response(JSON.stringify({ error: "Failed to fetch data." }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
     }
 };
