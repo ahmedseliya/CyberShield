@@ -1,6 +1,6 @@
 const functions = require('@netlify/functions');
 const admin = require('firebase-admin');
-const serviceAccount = require('../../firebase-service-account.json'); // path from functions/
+const serviceAccount = require('../../service-account.json');
 
 if (!admin.apps.length) {
   admin.initializeApp({
