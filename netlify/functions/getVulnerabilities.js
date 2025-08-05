@@ -1,4 +1,3 @@
-// ✅ File: netlify/functions/getVulnerabilities.js
 const functions = require('@netlify/functions');
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
@@ -14,20 +13,25 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
+
+// New API Key for VulnCheck v3
 const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
-const VULNCHECK_URL = 'https://api.vulncheck.com/v3/index/vulncheck-kev';
+
+// Updated VulnCheck v3 Endpoint (you may need to confirm this in your dashboard)
+const VULNCHECK_URL = 'https://api.vulncheck.com/v3/vulnerabilities';
 
 exports.handler = async (event, context) => {
   try {
-    // Fetch latest vulnerabilities (filtering CRITICAL/HIGH severities for relevance)
+    // Fetch vulnerabilities with updated headers and URL
     const res = await fetch(`${VULNCHECK_URL}?severity=HIGH,CRITICAL&limit=50`, {
       headers: {
-        Authorization: `Bearer ${VULNCHECK_API_KEY}`,
+        'Authorization': `Bearer ${VULNCHECK_API_KEY}`,
+        'Accept': 'application/json'
       },
     });
 
     if (!res.ok) {
-      throw new Error(`VulnCheck API Error: ${res.status}`);
+      throw new Error(`VulnCheck API Error: ${res.status} ${res.statusText}`);
     }
 
     const json = await res.json();
@@ -37,15 +41,17 @@ exports.handler = async (event, context) => {
     const coll = db.collection('vulnerabilities');
 
     for (const item of vulns) {
-      const docId = `cve-${item.id}`;
+      const docId = `cve-${item.id || item.cve_id}`;
       const ref = coll.doc(docId);
+
       const data = {
-        id: item.id,
+        id: item.id || item.cve_id,
         description: item.description || '',
-        severity: item.cvss?.severity?.toUpperCase() || 'UNKNOWN',
-        timestamp: new Date(item.published || Date.now()),
-        tech: item.products?.map(p => p.name.toLowerCase()) || [],
+        severity: item.cvss?.severity?.toUpperCase() || item.severity?.toUpperCase() || 'UNKNOWN',
+        timestamp: new Date(item.published || item.date || Date.now()),
+        tech: item.products?.map(p => p.name?.toLowerCase()) || [],
       };
+
       batch.set(ref, data, { merge: true });
     }
 
