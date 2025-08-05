@@ -15,8 +15,8 @@ const db = admin.firestore();
 exports.handler = async (event, context) => {
   try {
     const data = {
-      title: 'Test second',
-      description: 'This is a second test vulnerability',
+      title: 'Test Entry',
+      description: 'This is a test vulnerability',
       createdAt: new Date().toISOString(),
     };
 
