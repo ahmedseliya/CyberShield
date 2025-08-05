@@ -15,7 +15,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
-const VULNCHECK_URL = 'https://api.vulncheck.com/v3/cve';
+const VULNCHECK_URL = 'https://api.vulncheck.com/v3/index/vulncheck-kev';
 
 exports.handler = async (event, context) => {
   try {
