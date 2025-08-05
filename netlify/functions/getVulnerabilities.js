@@ -14,27 +14,17 @@ const db = admin.firestore();
 
 exports.handler = async (event, context) => {
   try {
-    // OPTIONAL: Only for testing/demo: add a dummy entry each time
-    /*
     const data = {
-      title: 'Test Entry',
-      description: 'This is a test vulnerability',
+      title: 'Test second',
+      description: 'This is a second test vulnerability',
       createdAt: new Date().toISOString(),
     };
 
     await db.collection('vulnerabilities').add(data);
-    */
-
-    // ✅ FETCH data from Firestore
-    const snapshot = await db.collection('vulnerabilities').orderBy('createdAt', 'desc').get();
-    const vulnerabilities = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, data: vulnerabilities }),
+      body: JSON.stringify({ success: true }),
     };
   } catch (error) {
     console.error('Firestore Error:', error);
