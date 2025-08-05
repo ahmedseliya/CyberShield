@@ -23,3 +23,4 @@ dist-ssr
 *.sln
 *.sw?
 service-account.json
+service-account.b64.txt
