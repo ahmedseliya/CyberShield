@@ -2,7 +2,7 @@ const axios = require('axios');
 const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, query, where, getDocs, addDoc } = require('firebase/firestore');
 
-// Initialize Firebase with environment variables from Netlify dashboard
+// Initialize Firebase with ENV variables from Netlify
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
@@ -17,14 +17,14 @@ const db = getFirestore(app);
 exports.handler = async function (event, context) {
   const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
 
-  // Always include these headers for CORS!
+  // Always include these headers for CORS
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
   };
 
-  // Handle browser "preflight" (OPTIONS) requests
+  // Handle browser "preflight" (OPTIONS) requests quickly
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -34,7 +34,7 @@ exports.handler = async function (event, context) {
   }
 
   try {
-    // Fetch data from VulnCheck API
+    // Fetch from VulnCheck API
     const response = await axios.get(
       "https://api.vulncheck.com/v3/index/nist-nvd2?size=100",
       {
@@ -44,18 +44,23 @@ exports.handler = async function (event, context) {
       }
     );
 
-    // Write to Firestore if not present
+    // Iterate and write new vulns to Firestore
     for (const item of response.data.data || []) {
       const cveId = item.cve?.id;
       if (!cveId) continue;
 
+      // Defensive extraction of description
       const description = item.cve?.descriptions?.find(d => d.lang === 'en')?.value || 'No description available';
+
+      // Defensive extraction of severity
+      const severity = item.cve?.metrics?.cvssMetricV31?.[0]?.cvssData?.baseSeverity || 'UNKNOWN';
+      console.log("Extracted severity for", cveId, ":", severity);
+
+      // Check if doc already exists
       const q = query(collection(db, 'vulnerabilities'), where('id', '==', cveId));
       const snap = await getDocs(q);
 
       if (snap.empty) {
-        // Add severity/tech/category logic as you wish
-        const severity = item.cve?.metrics?.cvssMetricV31?.[0]?.cvssData?.baseSeverity || 'UNKNOWN';
         const tech = ['Node.js', 'React', 'PHP', 'Python', 'Java'].filter(
           t => description.toLowerCase().includes(t.toLowerCase())
         );
@@ -63,10 +68,11 @@ exports.handler = async function (event, context) {
           id: cveId,
           description: description,
           severity: severity,
-          category: 'N/A', // You can add category logic if needed
+          category: 'N/A', // You can improve logic later
           tech,
           timestamp: new Date(item.cve?.published || Date.now())
         };
+        console.log("Writing to Firestore:", vulnDoc); // LOGGING FOR DEBUGGING!
         await addDoc(collection(db, 'vulnerabilities'), vulnDoc);
       }
     }
