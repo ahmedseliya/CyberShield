@@ -18,7 +18,7 @@ const db = admin.firestore();
 const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
 
 // Updated VulnCheck v3 Endpoint (you may need to confirm this in your dashboard)
-const VULNCHECK_URL = 'https://api.vulncheck.com/v3/index/vulncheck-kev';
+const VULNCHECK_URL = 'https://api.vulncheck.com/v3/vulnerabilities';
 
 exports.handler = async (event, context) => {
   try {
