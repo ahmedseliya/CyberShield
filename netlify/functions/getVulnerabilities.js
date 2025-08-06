@@ -1,71 +1,59 @@
+// netlify/functions/getVulnerabilities.js
 const functions = require('@netlify/functions');
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
 
-// Decode Firebase service account
-if (!admin.apps.length) {
-  const serviceAccountJson = Buffer.from(process.env.SERVICE_ACCOUNT, 'base64').toString('utf8');
-  const serviceAccount = JSON.parse(serviceAccountJson);
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+};
 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+if (!admin.apps.length) {
+  const sa = JSON.parse(Buffer.from(process.env.SERVICE_ACCOUNT, 'base64').toString('utf8'));
+  admin.initializeApp({ credential: admin.credential.cert(sa) });
 }
 
 const db = admin.firestore();
-
-// New API Key for VulnCheck v3
 const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
-
-// Updated VulnCheck v3 Endpoint (you may need to confirm this in your dashboard)
-const VULNCHECK_URL = 'https://api.vulncheck.com/v3/vulnerabilities';
+const VULNCHECK_URL = 'https://api.vulncheck.com/v3/index'; // or other index endpoint
 
 exports.handler = async (event, context) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers: corsHeaders, body: '' };
+  }
   try {
-    // Fetch vulnerabilities with updated headers and URL
-    const res = await fetch(`${VULNCHECK_URL}?severity=HIGH,CRITICAL&limit=50`, {
-      headers: {
-        'Authorization': `Bearer ${VULNCHECK_API_KEY}`,
-        'Accept': 'application/json'
-      },
+    const res = await fetch(`${VULNCHECK_URL}?limit=50`, {
+      headers: { Authorization: `Bearer ${VULNCHECK_API_KEY}`, Accept: 'application/json' },
     });
-
-    if (!res.ok) {
-      throw new Error(`VulnCheck API Error: ${res.status} ${res.statusText}`);
-    }
-
+    if (!res.ok) throw new Error(`VulnCheck API Error: ${res.status} ${res.statusText}`);
     const json = await res.json();
-    const vulns = Array.isArray(json) ? json : json.data || [];
-
+    const items = json.data || [];
     const batch = db.batch();
     const coll = db.collection('vulnerabilities');
-
-    for (const item of vulns) {
-      const docId = `cve-${item.id || item.cve_id}`;
-      const ref = coll.doc(docId);
-
-      const data = {
-        id: item.id || item.cve_id,
-        description: item.description || '',
-        severity: item.cvss?.severity?.toUpperCase() || item.severity?.toUpperCase() || 'UNKNOWN',
-        timestamp: new Date(item.published || item.date || Date.now()),
-        tech: item.products?.map(p => p.name?.toLowerCase()) || [],
-      };
-
-      batch.set(ref, data, { merge: true });
-    }
-
+    items.forEach(item => {
+      const id = item.id || item.cve_id || item.CVE;
+      if (!id) return;
+      batch.set(coll.doc(`cve-${id}`), {
+        id,
+        description: item.summary || item.description || '',
+        severity: (item.cvss?.severity || item.severity)?.toUpperCase() || 'UNKNOWN',
+        timestamp: new Date(item.date || item.published || Date.now()),
+        tech: Array.isArray(item.products) ? item.products.map(p => typeof p === 'string' ? p : p.name).map(t=>t.toLowerCase()) : [],
+      }, { merge: true });
+    });
     await batch.commit();
-
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, count: vulns.length }),
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, count: items.length }),
     };
-  } catch (error) {
-    console.error('Fetcher Error:', error);
+  } catch (err) {
+    console.error('Fetcher Error:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ success: false, error: error.message }),
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: err.message }),
     };
   }
 };
