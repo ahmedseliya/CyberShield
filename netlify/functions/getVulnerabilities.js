@@ -11,9 +11,9 @@ const corsHeaders = {
 
 if (!admin.apps.length) {
   const sa = JSON.parse(Buffer.from(process.env.SERVICE_ACCOUNT, 'base64').toString('utf8'));
-  admin.initializeApp({ credential: admin.credential.cert(sa) });
+  admin.initializeApp({ credential: admin.credential.cert(SERVICE_ACCOUNT) });
 }
-
+ 
 const db = admin.firestore();
 const VULNCHECK_API_KEY = process.env.VULNCHECK_API_KEY;
 const VULNCHECK_URL = 'https://api.vulncheck.com/v3/index'; // or other index endpoint
