@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import VulnerabilityFeed from './VulnerabilityFeed'; // ✅ correct
+import VulnerabilityFeed from './OWASPVulnerabilityFeed'; // ✅ correct
 
 function OWASP() {
   const [selectedVuln, setSelectedVuln] = useState(null);
@@ -604,7 +604,7 @@ function OWASP() {
           </div>
         </div>
       )}
- <VulnerabilityFeed />
+ <OWASPVulnerabilityFeed />
      
       <div className="owasp-grid">
         {filteredVulns.map((vuln) => (
