@@ -604,7 +604,7 @@ function OWASP() {
           </div>
         </div>
       )}
- <OWASPVulnerabilityFeed />
+
      
       <div className="owasp-grid">
         {filteredVulns.map((vuln) => (
@@ -739,6 +739,7 @@ function OWASP() {
           against these vulnerabilities. Remember: security is an ongoing process, not a one-time fix.
         </p>
       </div>
+       <OWASPVulnerabilityFeed />
     </>
   );
 }

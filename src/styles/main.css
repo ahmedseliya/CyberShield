@@ -1963,6 +1963,26 @@ input[type="password"]::-webkit-inner-spin-button {
   }
 }
 
+:root {
+  --bg-light: #f9f9f9;
+  --bg-dark: #0a192f;
+  --card-dark: #112240;
+  --text-light: #333;
+  --text-dark: #fff;
+  --accent: #ff6b00;
+  --shadow: rgba(255, 107, 0, 0.4);
+}
+
+body[data-theme='dark'] {
+  background-color: var(--bg-dark);
+  color: var(--text-dark);
+}
+
+body[data-theme='light'] {
+  background-color: var(--bg-light);
+  color: var(--text-light);
+}
+
 .vuln-container {
   padding: 2rem;
   min-height: 100vh;
@@ -1993,18 +2013,6 @@ input[type="password"]::-webkit-inner-spin-button {
 
 .card:hover {
   transform: scale(1.02);
-}
-
-.sev-critical {
-  color: #ff4d4d;
-}
-
-.sev-high {
-  color: #ff9800;
-}
-
-.sev-medium {
-  color: #ffc107;
 }
 
 .sev-low {
