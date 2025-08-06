@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import VulnerabilityFeed from './OWASPVulnerabilityFeed'; // ✅ correct
+import OWASPVulnerabilityFeed from './OWASPVulnerabilityFeed'; // ✅ correct
 
 function OWASP() {
   const [selectedVuln, setSelectedVuln] = useState(null);
