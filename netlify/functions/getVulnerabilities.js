@@ -11,7 +11,7 @@ const corsHeaders = {
 
 if (!admin.apps.length) {
   const sa = JSON.parse(Buffer.from(process.env.SERVICE_ACCOUNT, 'base64').toString('utf8'));
-  admin.initializeApp({ credential: admin.credential.cert(SERVICE_ACCOUNT) });
+  admin.initializeApp({ credential: admin.credential.cert(sa) });
 }
  
 const db = admin.firestore();
