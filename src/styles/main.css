@@ -1968,7 +1968,7 @@ input[type="password"]::-webkit-inner-spin-button {
    ===================== */
 
 .vuln-container {
-    padding: 2rem;
+    padding: 1rem;
     min-height: 100vh;
     background-color: var(--bg-color);
     color: var(--text-color);
