@@ -2,6 +2,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import OWASPVulnerabilityFeed from './OWASPVulnerabilityFeed'; // ✅ correct
+import ThreatModelingAssistant from './ThreatModelingAssistant';
+import OWASPAttackSimulator from './OWASPAttackSimulator';
+
 
 function OWASP() {
   const [selectedVuln, setSelectedVuln] = useState(null);
@@ -740,6 +743,8 @@ function OWASP() {
         </p>
       </div>
        <OWASPVulnerabilityFeed />
+       <ThreatModelingAssistant />
+       <OWASPAttackSimulator />
     </>
   );
 }
