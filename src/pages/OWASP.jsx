@@ -1,47 +1,109 @@
-
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import OWASPVulnerabilityFeed from './OWASPVulnerabilityFeed'; // ✅ correct
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc 
+} from 'firebase/firestore';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import OWASPVulnerabilityFeed from './OWASPVulnerabilityFeed';
 import ThreatModelingAssistant from './ThreatModelingAssistant';
 import OWASPAttackSimulator from './OWASPAttackSimulator';
-
 
 function OWASP() {
   const [selectedVuln, setSelectedVuln] = useState(null);
   const [expandedExample, setExpandedExample] = useState(null);
   const [filterSeverity, setFilterSeverity] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [completedItems, setCompletedItems] = useState(() => {
-    const saved = localStorage.getItem('owasp-completed');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [viewedItems, setViewedItems] = useState(() => {
-    const saved = localStorage.getItem('owasp-viewed');
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [completedItems, setCompletedItems] = useState([]);
+  const [viewedItems, setViewedItems] = useState({});
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [showQuickAssessment, setShowQuickAssessment] = useState(false);
   const [assessmentScore, setAssessmentScore] = useState(null);
   const navigate = useNavigate();
+
+  const db = getFirestore();
+  const auth = getAuth();
+
+  // Listen for auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        await loadUserProgress(user.uid);
+      } else {
+        setCompletedItems([]);
+        setViewedItems({});
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load user progress from Firestore
+  const loadUserProgress = async (userId) => {
+    try {
+      const userProgressRef = doc(db, 'userProgress', userId);
+      const userProgressSnap = await getDoc(userProgressRef);
+      
+      if (userProgressSnap.exists()) {
+        const progressData = userProgressSnap.data();
+        setCompletedItems(progressData.completedItems || []);
+        setViewedItems(progressData.viewedItems || {});
+      } else {
+        setCompletedItems([]);
+        setViewedItems({});
+        await setDoc(userProgressRef, {
+          completedItems: [],
+          viewedItems: {},
+          createdAt: new Date(),
+          lastUpdated: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('Error loading user progress:', error);
+      setCompletedItems([]);
+      setViewedItems({});
+    }
+  };
+
+  // Save user progress to Firestore
+  const saveUserProgress = async (newCompleted, newViewed) => {
+    if (!currentUser) return;
+    
+    try {
+      const userProgressRef = doc(db, 'userProgress', currentUser.uid);
+      await updateDoc(userProgressRef, {
+        completedItems: newCompleted,
+        viewedItems: newViewed,
+        lastUpdated: new Date()
+      });
+    } catch (error) {
+      console.error('Error saving user progress:', error);
+    }
+  };
 
   // TryHackMe-style auto-completion detection
   useEffect(() => {
     let viewTimer;
     
-    if (selectedVuln && expandedExample === selectedVuln) {
+    if (selectedVuln && expandedExample === selectedVuln && currentUser) {
       viewTimer = setTimeout(() => {
-        // Auto-complete after viewing example for 5 seconds
         if (!completedItems.includes(selectedVuln)) {
           const newCompleted = [...completedItems, selectedVuln];
           setCompletedItems(newCompleted);
-          localStorage.setItem('owasp-completed', JSON.stringify(newCompleted));
           
-          // Track viewing time
           const newViewed = {
             ...viewedItems,
             [selectedVuln]: Date.now()
           };
           setViewedItems(newViewed);
-          localStorage.setItem('owasp-viewed', JSON.stringify(newViewed));
+          
+          saveUserProgress(newCompleted, newViewed);
         }
       }, 5000);
     }
@@ -49,8 +111,7 @@ function OWASP() {
     return () => {
       if (viewTimer) clearTimeout(viewTimer);
     };
-  }, [selectedVuln, expandedExample, completedItems, viewedItems]);
-  
+  }, [selectedVuln, expandedExample, completedItems, viewedItems, currentUser]);
 
   const owaspData = [
     {
@@ -511,6 +572,15 @@ function OWASP() {
       setAssessmentScore(finalScore);
     }, 2000);
   };
+
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>Loading your security progress...</p>
+      </div>
+    );
+  }
 
   return (
     <>
