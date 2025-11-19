@@ -50,6 +50,7 @@ function Glossary() {
   const [simulationResult, setSimulationResult] = useState('');
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [correctAnswerIndex, setCorrectAnswerIndex] = useState(null);
+  const [apiCallCount, setApiCallCount] = useState(0); // Track current term API calls
 
   // 🔄 Load user data from Firestore
   const loadUserData = async (userId) => {
@@ -153,7 +154,9 @@ function Glossary() {
         lastUpdated: serverTimestamp()
       });
       
-      return apiCalls[today][termId];
+      const newCount = apiCalls[today][termId];
+      setApiCallCount(newCount); // Update local state
+      return newCount;
     } catch (error) {
       console.error('Error updating call count:', error);
       return 1;
@@ -328,6 +331,8 @@ function Glossary() {
 
     const termId = term.id;
     const reachedLimit = await hasReachedDailyLimit(termId);
+    const currentCallCount = await getDailyCallCount(termId);
+    setApiCallCount(currentCallCount);
     
     // Check if reached daily limit FIRST
     if (reachedLimit) {
@@ -376,8 +381,7 @@ function Glossary() {
 
     // If under limit, ALWAYS call Gemini API for fresh scenario
     try {
-      const callCount = await getDailyCallCount(termId);
-      console.log('🚀 Calling Gemini API for:', term.term, `(Call ${callCount + 1}/2 today)`);
+      console.log('🚀 Calling Gemini API for:', term.term, `(Call ${currentCallCount + 1}/2 today)`);
       
       const prompt = `
 You are a cybersecurity expert creating interactive learning simulations. Create a realistic scenario for the cybersecurity term: "${term.term}"
@@ -513,6 +517,7 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
     setUserChoice(null);
     setSimulationResult('');
     setCorrectAnswerIndex(null);
+    setApiCallCount(0);
   };
 
   // Copy to Clipboard Function
@@ -1018,10 +1023,15 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
                         e.stopPropagation();
                         openSimulationModal(term);
                       }}
-                      title={`Practice with AI simulation`}
+                      title={
+                        currentUser 
+                          ? `Practice with AI simulation (${apiCallCount}/2 today)`
+                          : "Login to practice with AI simulation"
+                      }
+                      disabled={currentUser && apiCallCount >= 2}
                     >
                       <Play size={14} />
-                      Practice
+                      {currentUser && apiCallCount >= 2 ? "Limit Reached" : "Practice"}
                     </button>
                     
                     {currentUser && (
@@ -1068,7 +1078,12 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
                       e.stopPropagation();
                       openSimulationModal(term);
                     }}
-                    title={`Practice with AI simulation`}
+                    title={
+                      currentUser 
+                        ? `Practice with AI simulation (${apiCallCount}/2 today)`
+                        : "Login to practice with AI simulation"
+                    }
+                    disabled={currentUser && apiCallCount >= 2}
                   >
                     <Play size={16} />
                   </button>
@@ -1343,6 +1358,15 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
                     <div className="result-box">
                       <h3>💡 Feedback:</h3>
                       <p>{simulationResult}</p>
+                      {/* Show "Try Another Scenario" only if under daily limit */}
+                      {apiCallCount < 2 && (
+                        <button 
+                          className="try-again-btn"
+                          onClick={() => openSimulationModal(selectedTermForSimulation)}
+                        >
+                          Try Another Scenario
+                        </button>
+                      )}
                     </div>
                   )}
                 </>
