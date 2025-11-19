@@ -50,7 +50,7 @@ function Glossary() {
   const [simulationResult, setSimulationResult] = useState('');
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [correctAnswerIndex, setCorrectAnswerIndex] = useState(null);
-  const [apiCallCount, setApiCallCount] = useState(0); // Track current term API calls
+  const [apiCallCounts, setApiCallCounts] = useState({}); // Track API calls per term
 
   // 🔄 Load user data from Firestore
   const loadUserData = async (userId) => {
@@ -70,7 +70,14 @@ function Glossary() {
           setBookmarkedTerms(new Set());
         }
         
-        // Return API call data
+        // Load API call counts
+        if (userData.apiCalls) {
+          const today = new Date().toDateString();
+          const todayApiCalls = userData.apiCalls[today] || {};
+          setApiCallCounts(todayApiCalls);
+          console.log('📊 Loaded API call counts:', todayApiCalls);
+        }
+        
         return userData.apiCalls || {};
       } else {
         // Initialize user data in Firestore
@@ -81,11 +88,13 @@ function Glossary() {
           lastUpdated: serverTimestamp()
         });
         setBookmarkedTerms(new Set());
+        setApiCallCounts({});
         return {};
       }
     } catch (error) {
       console.error('Error loading user data:', error);
       setBookmarkedTerms(new Set());
+      setApiCallCounts({});
       return {};
     }
   };
@@ -107,7 +116,7 @@ function Glossary() {
     }
   };
 
-  // 🔄 Get user-specific API call count
+  // 🔄 Get user-specific API call count for a specific term
   const getDailyCallCount = async (termId) => {
     if (!currentUser) return 0;
     
@@ -155,7 +164,14 @@ function Glossary() {
       });
       
       const newCount = apiCalls[today][termId];
-      setApiCallCount(newCount); // Update local state
+      
+      // Update local state
+      setApiCallCounts(prev => ({
+        ...prev,
+        [termId]: newCount
+      }));
+      
+      console.log('📊 API call count updated:', termId, '=', newCount);
       return newCount;
     } catch (error) {
       console.error('Error updating call count:', error);
@@ -180,6 +196,7 @@ function Glossary() {
       } else {
         console.log('👤 No user logged in');
         setBookmarkedTerms(new Set());
+        setApiCallCounts({});
       }
     });
     return () => unsubscribe();
@@ -330,9 +347,12 @@ function Glossary() {
     setCorrectAnswerIndex(null);
 
     const termId = term.id;
-    const reachedLimit = await hasReachedDailyLimit(termId);
+    
+    // Get current call count for this specific term
     const currentCallCount = await getDailyCallCount(termId);
-    setApiCallCount(currentCallCount);
+    console.log(`📊 Current call count for ${term.term}: ${currentCallCount}/2`);
+    
+    const reachedLimit = currentCallCount >= 2;
     
     // Check if reached daily limit FIRST
     if (reachedLimit) {
@@ -517,7 +537,6 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
     setUserChoice(null);
     setSimulationResult('');
     setCorrectAnswerIndex(null);
-    setApiCallCount(0);
   };
 
   // Copy to Clipboard Function
@@ -983,8 +1002,11 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
 
       {/* Terms List / Flashcards */}
       <div className={flashcardMode ? 'flashcard-grid' : 'terms-list'}>
-        {filteredTerms.map(term => (
-          flashcardMode ? (
+        {filteredTerms.map(term => {
+          const termCallCount = apiCallCounts[term.id] || 0;
+          const isLimitReached = currentUser && termCallCount >= 2;
+          
+          return flashcardMode ? (
             <div
               key={term.id}
               className={`flashcard ${flippedCards.has(term.id) ? 'flipped' : ''}`}
@@ -1025,13 +1047,13 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
                       }}
                       title={
                         currentUser 
-                          ? `Practice with AI simulation (${apiCallCount}/2 today)`
+                          ? `Practice with AI simulation (${termCallCount}/2 today)`
                           : "Login to practice with AI simulation"
                       }
-                      disabled={currentUser && apiCallCount >= 2}
+                      disabled={isLimitReached}
                     >
                       <Play size={14} />
-                      {currentUser && apiCallCount >= 2 ? "Limit Reached" : "Practice"}
+                      {isLimitReached ? "Limit Reached" : "Practice"}
                     </button>
                     
                     {currentUser && (
@@ -1080,10 +1102,10 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
                     }}
                     title={
                       currentUser 
-                        ? `Practice with AI simulation (${apiCallCount}/2 today)`
+                        ? `Practice with AI simulation (${termCallCount}/2 today)`
                         : "Login to practice with AI simulation"
                     }
-                    disabled={currentUser && apiCallCount >= 2}
+                    disabled={isLimitReached}
                   >
                     <Play size={16} />
                   </button>
@@ -1154,7 +1176,7 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
               )}
             </div>
           )
-        ))}
+        })}
       </div>
 
       {filteredTerms.length === 0 && (
@@ -1313,11 +1335,16 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
       )}
 
       {/* NEW: AI Simulation Modal */}
-      {showSimulationModal && (
+      {showSimulationModal && selectedTermForSimulation && (
         <div className="modal-overlay2">
           <div className="modal-content2 simulation-modal">
             <div className="modal-header2">
-              <h2>🎯 AI Security Simulation: {selectedTermForSimulation?.term}</h2>
+              <h2>🎯 AI Security Simulation: {selectedTermForSimulation.term}</h2>
+              <div className="simulation-usage">
+                <span className="usage-count">
+                  {currentUser ? `Used today: ${apiCallCounts[selectedTermForSimulation.id] || 0}/2` : 'Login to track usage'}
+                </span>
+              </div>
               <button className="close-btn2" onClick={closeSimulationModal}>
                 <X size={24} />
               </button>
@@ -1327,6 +1354,9 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
               {simulationLoading ? (
                 <div className="simulation-loading">
                   <p>🔄 AI is creating a realistic scenario for you...</p>
+                  {currentUser && (
+                    <p className="usage-note">Usage: {apiCallCounts[selectedTermForSimulation.id] || 0}/2 today</p>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1359,12 +1389,12 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
                       <h3>💡 Feedback:</h3>
                       <p>{simulationResult}</p>
                       {/* Show "Try Another Scenario" only if under daily limit */}
-                      {apiCallCount < 2 && (
+                      {currentUser && (apiCallCounts[selectedTermForSimulation.id] || 0) < 2 && (
                         <button 
                           className="try-again-btn"
                           onClick={() => openSimulationModal(selectedTermForSimulation)}
                         >
-                          Try Another Scenario
+                          Try Another Scenario ({2 - (apiCallCounts[selectedTermForSimulation.id] || 0)} left today)
                         </button>
                       )}
                     </div>
