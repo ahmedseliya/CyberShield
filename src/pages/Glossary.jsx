@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, BookmarkPlus, BookmarkCheck, Download, ChevronUp, ChevronDown, Shuffle, Info, X, Plus, Edit, Play, Copy } from 'lucide-react';
 import { db } from '../firebaseConfig';
-import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth } from '../firebaseConfig';
 import jsPDF from 'jspdf';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -51,83 +51,109 @@ function Glossary() {
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [correctAnswerIndex, setCorrectAnswerIndex] = useState(null);
 
-  // 🔄 Caching functions with daily limits
-  const getCachedSimulation = (termId) => {
+  // 🔄 Load user data from Firestore
+  const loadUserData = async (userId) => {
     try {
-      const cached = sessionStorage.getItem(`simulation_${termId}`);
-      if (cached) {
-        const simulation = JSON.parse(cached);
-        // Check if cache is less than 24 hours old
-        if (Date.now() - simulation.timestamp < 24 * 60 * 60 * 1000) {
-          return simulation.data;
+      const userDataRef = doc(db, 'userGlossaryData', userId);
+      const userDataSnap = await getDoc(userDataRef);
+      
+      if (userDataSnap.exists()) {
+        const userData = userDataSnap.data();
+        console.log('📚 Loaded user data from Firestore:', userData);
+        
+        // Convert bookmarks array to Set
+        if (userData.bookmarks) {
+          const bookmarkedIds = new Set(userData.bookmarks.map(bookmark => String(bookmark.termId)));
+          setBookmarkedTerms(bookmarkedIds);
+        } else {
+          setBookmarkedTerms(new Set());
         }
+        
+        // Return API call data
+        return userData.apiCalls || {};
+      } else {
+        // Initialize user data in Firestore
+        await setDoc(userDataRef, {
+          bookmarks: [],
+          apiCalls: {},
+          createdAt: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        });
+        setBookmarkedTerms(new Set());
+        return {};
       }
     } catch (error) {
-      console.error('Error reading cache:', error);
-    }
-    return null;
-  };
-
-  const setCachedSimulation = (termId, simulationData) => {
-    try {
-      const cache = {
-        data: simulationData,
-        timestamp: Date.now()
-      };
-      sessionStorage.setItem(`simulation_${termId}`, JSON.stringify(cache));
-    } catch (error) {
-      console.error('Error setting cache:', error);
+      console.error('Error loading user data:', error);
+      setBookmarkedTerms(new Set());
+      return {};
     }
   };
 
-  // 🔄 ENHANCED: User-specific ensureFreshData
-  const ensureFreshData = () => {
+  // 🔄 Save user data to Firestore
+  const saveUserData = async (bookmarksData, apiCallsData) => {
     if (!currentUser) return;
     
-    const today = new Date().toDateString();
-    const userCallKey = `api_calls_${currentUser.uid}`;
-    const callData = JSON.parse(localStorage.getItem(userCallKey) || '{}');
-    
-    // If no data for today, clear all old data for THIS USER
-    if (!callData[today]) {
-      localStorage.setItem(userCallKey, JSON.stringify({}));
-      console.log(`🔄 Reset API call data for user ${currentUser.uid} for new day`);
+    try {
+      const userDataRef = doc(db, 'userGlossaryData', currentUser.uid);
+      await updateDoc(userDataRef, {
+        bookmarks: bookmarksData,
+        apiCalls: apiCallsData,
+        lastUpdated: serverTimestamp()
+      });
+      console.log('💾 Saved user data to Firestore');
+    } catch (error) {
+      console.error('Error saving user data:', error);
     }
   };
 
-  // 🔄 ENHANCED: User-specific API call tracking
-  const getDailyCallCount = (termId) => {
+  // 🔄 Get user-specific API call count
+  const getDailyCallCount = async (termId) => {
     if (!currentUser) return 0;
     
     try {
-      const today = new Date().toDateString();
-      const userCallKey = `api_calls_${currentUser.uid}`;
-      const callData = JSON.parse(localStorage.getItem(userCallKey) || '{}');
-      return callData[today]?.[termId] || 0;
+      const userDataRef = doc(db, 'userGlossaryData', currentUser.uid);
+      const userDataSnap = await getDoc(userDataRef);
+      
+      if (userDataSnap.exists()) {
+        const userData = userDataSnap.data();
+        const apiCalls = userData.apiCalls || {};
+        const today = new Date().toDateString();
+        return apiCalls[today]?.[termId] || 0;
+      }
+      return 0;
     } catch (error) {
       console.error('Error reading call count:', error);
       return 0;
     }
   };
 
-  const incrementDailyCallCount = (termId) => {
+  // 🔄 Increment user-specific API call count
+  const incrementDailyCallCount = async (termId) => {
     if (!currentUser) return 0;
     
     try {
-      ensureFreshData();
+      const userDataRef = doc(db, 'userGlossaryData', currentUser.uid);
+      const userDataSnap = await getDoc(userDataRef);
       
-      const today = new Date().toDateString();
-      const userCallKey = `api_calls_${currentUser.uid}`;
-      const callData = JSON.parse(localStorage.getItem(userCallKey) || '{}');
-      
-      if (!callData[today]) {
-        callData[today] = {};
+      let apiCalls = {};
+      if (userDataSnap.exists()) {
+        apiCalls = userDataSnap.data().apiCalls || {};
       }
       
-      callData[today][termId] = (callData[today][termId] || 0) + 1;
-      localStorage.setItem(userCallKey, JSON.stringify(callData));
+      const today = new Date().toDateString();
+      if (!apiCalls[today]) {
+        apiCalls[today] = {};
+      }
       
-      return callData[today][termId];
+      apiCalls[today][termId] = (apiCalls[today][termId] || 0) + 1;
+      
+      // Save updated API calls
+      await updateDoc(userDataRef, {
+        apiCalls: apiCalls,
+        lastUpdated: serverTimestamp()
+      });
+      
+      return apiCalls[today][termId];
     } catch (error) {
       console.error('Error updating call count:', error);
       return 1;
@@ -135,55 +161,23 @@ function Glossary() {
   };
 
   // 🔄 Check if term has reached daily limit
-  const hasReachedDailyLimit = (termId) => {
-    return getDailyCallCount(termId) >= 2;
+  const hasReachedDailyLimit = async (termId) => {
+    const callCount = await getDailyCallCount(termId);
+    return callCount >= 2;
   };
-
-  // 🔄 ENHANCED: User-specific cleanup
-  useEffect(() => {
-    const cleanupOldCallData = () => {
-      if (!currentUser) return;
-      
-      try {
-        const userCallKey = `api_calls_${currentUser.uid}`;
-        const callData = JSON.parse(localStorage.getItem(userCallKey) || '{}');
-        const today = new Date().toDateString();
-        
-        console.log(`🔄 Checking for old API call data for user ${currentUser.uid}...`);
-        
-        // Remove data older than today for THIS USER
-        const cleanedData = {};
-        let removedCount = 0;
-        
-        for (const date in callData) {
-          if (date === today) {
-            cleanedData[date] = callData[date];
-          } else {
-            removedCount++;
-            console.log(`🗑️ Removing old data from ${date} for user ${currentUser.uid}`);
-          }
-        }
-        
-        if (removedCount > 0) {
-          console.log(`✅ Cleaned up ${removedCount} days of old API call data for user ${currentUser.uid}`);
-          localStorage.setItem(userCallKey, JSON.stringify(cleanedData));
-        }
-      } catch (error) {
-        console.error('Error cleaning call data:', error);
-      }
-    };
-
-    if (currentUser) {
-      cleanupOldCallData();
-      const intervalId = setInterval(cleanupOldCallData, 60 * 60 * 1000);
-      return () => clearInterval(intervalId);
-    }
-  }, [currentUser]); // 🔄 Re-run when user changes
 
   // Get current user
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       setCurrentUser(user);
+      if (user) {
+        console.log('👤 User logged in:', user.uid);
+        // Load user-specific data from Firestore
+        await loadUserData(user.uid);
+      } else {
+        console.log('👤 No user logged in');
+        setBookmarkedTerms(new Set());
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -237,32 +231,6 @@ function Glossary() {
     
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
-  // Fetch user's bookmarks from localStorage
-  useEffect(() => {
-    if (!currentUser) {
-      setBookmarkedTerms(new Set());
-      return;
-    }
-
-    try {
-      const userBookmarksKey = `bookmarks_${currentUser.uid}`;
-      const localBookmarks = JSON.parse(localStorage.getItem(userBookmarksKey) || '{}');
-      
-      // Convert all keys to strings for consistency and handle type conversion
-      const bookmarkedIds = new Set();
-      Object.keys(localBookmarks).forEach(key => {
-        bookmarkedIds.add(String(key)); // Ensure all IDs are strings
-      });
-      
-      console.log('📚 Loaded bookmarks:', Array.from(bookmarkedIds));
-      console.log('📖 Bookmark data:', localBookmarks);
-      setBookmarkedTerms(bookmarkedIds);
-    } catch (error) {
-      console.error('Error loading bookmarks:', error);
-      setBookmarkedTerms(new Set());
-    }
-  }, [currentUser]);
 
   // User Contribution Functions
   const openNewSuggestionModal = () => {
@@ -350,30 +318,41 @@ function Glossary() {
   };
 
   // 🔄 AI Simulation Functions with Gemini AI SDK
-const openSimulationModal = async (term) => {
-  setSelectedTermForSimulation(term);
-  setShowSimulationModal(true);
-  setSimulationLoading(true);
-  setUserChoice(null);
-  setSimulationResult('');
-  setCorrectAnswerIndex(null);
+  const openSimulationModal = async (term) => {
+    setSelectedTermForSimulation(term);
+    setShowSimulationModal(true);
+    setSimulationLoading(true);
+    setUserChoice(null);
+    setSimulationResult('');
+    setCorrectAnswerIndex(null);
 
-  const termId = term.id;
-  const callCount = getDailyCallCount(termId);
-  
-  // Check if reached daily limit FIRST
-  if (hasReachedDailyLimit(termId)) {
-    console.log('🚫 Daily limit reached for:', term.term);
+    const termId = term.id;
+    const reachedLimit = await hasReachedDailyLimit(termId);
     
-    // Even if limit reached, try to use cached version
-    const cached = getCachedSimulation(termId);
-    if (cached) {
-      console.log('📦 Using cached simulation for:', term.term);
-      setSimulationScenario(cached.scenario);
-      setSimulationChoices(cached.choices);
-      setCorrectAnswerIndex(cached.correctAnswer);
-      setSimulationResult(cached.explanation);
-    } else {
+    // Check if reached daily limit FIRST
+    if (reachedLimit) {
+      console.log('🚫 Daily limit reached for:', term.term);
+      
+      // Even if limit reached, try to use cached version (session storage cache)
+      const cached = sessionStorage.getItem(`simulation_${termId}`);
+      if (cached) {
+        try {
+          const simulation = JSON.parse(cached);
+          // Check if cache is less than 24 hours old
+          if (Date.now() - simulation.timestamp < 24 * 60 * 60 * 1000) {
+            console.log('📦 Using cached simulation for:', term.term);
+            setSimulationScenario(simulation.data.scenario);
+            setSimulationChoices(simulation.data.choices);
+            setCorrectAnswerIndex(simulation.data.correctAnswer);
+            setSimulationResult(simulation.data.explanation);
+            setSimulationLoading(false);
+            return;
+          }
+        } catch (error) {
+          console.error('Error reading cache:', error);
+        }
+      }
+
       // No cache and limit reached - show fallback
       const fallbackData = {
         scenario: `You encounter a cybersecurity situation related to ${term.term}. ${term.definition} What do you do?`,
@@ -391,17 +370,16 @@ const openSimulationModal = async (term) => {
       setSimulationChoices(fallbackData.choices);
       setCorrectAnswerIndex(fallbackData.correctAnswer);
       setSimulationResult(fallbackData.explanation);
+      setSimulationLoading(false);
+      return;
     }
-    
-    setSimulationLoading(false);
-    return;
-  }
 
-  // If under limit, ALWAYS call Gemini API for fresh scenario
-  try {
-    console.log('🚀 Calling Gemini API for:', term.term, `(Call ${callCount + 1}/2 today)`);
-    
-    const prompt = `
+    // If under limit, ALWAYS call Gemini API for fresh scenario
+    try {
+      const callCount = await getDailyCallCount(termId);
+      console.log('🚀 Calling Gemini API for:', term.term, `(Call ${callCount + 1}/2 today)`);
+      
+      const prompt = `
 You are a cybersecurity expert creating interactive learning simulations. Create a realistic scenario for the cybersecurity term: "${term.term}"
 
 TERM DEFINITION: ${term.definition}
@@ -425,103 +403,107 @@ Return ONLY valid JSON in this exact format:
 Make the scenario realistic and educational. Focus on practical cybersecurity practices. IMPORTANT: Randomize the correctAnswer index (0-3) so it's not always the first option.
 `;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const content = response.text();
-    
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      let simulationData = JSON.parse(jsonMatch[0]);
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const content = response.text();
       
-      // ✅ RANDOMIZE the correct answer position
-      const originalCorrectAnswer = simulationData.correctAnswer;
-      const randomizedCorrectAnswer = Math.floor(Math.random() * 4); // 0-3
-      
-      // If the randomized position is different from original, swap the choices
-      if (randomizedCorrectAnswer !== originalCorrectAnswer) {
-        const temp = simulationData.choices[originalCorrectAnswer];
-        simulationData.choices[originalCorrectAnswer] = simulationData.choices[randomizedCorrectAnswer];
-        simulationData.choices[randomizedCorrectAnswer] = temp;
-        simulationData.correctAnswer = randomizedCorrectAnswer;
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        let simulationData = JSON.parse(jsonMatch[0]);
         
-        console.log('🔄 Randomized correct answer position from', originalCorrectAnswer, 'to', randomizedCorrectAnswer);
+        // ✅ RANDOMIZE the correct answer position
+        const originalCorrectAnswer = simulationData.correctAnswer;
+        const randomizedCorrectAnswer = Math.floor(Math.random() * 4); // 0-3
+        
+        // If the randomized position is different from original, swap the choices
+        if (randomizedCorrectAnswer !== originalCorrectAnswer) {
+          const temp = simulationData.choices[originalCorrectAnswer];
+          simulationData.choices[originalCorrectAnswer] = simulationData.choices[randomizedCorrectAnswer];
+          simulationData.choices[randomizedCorrectAnswer] = temp;
+          simulationData.correctAnswer = randomizedCorrectAnswer;
+          
+          console.log('🔄 Randomized correct answer position from', originalCorrectAnswer, 'to', randomizedCorrectAnswer);
+        }
+        
+        // ✅ Clean the explanation to remove any letter references that might conflict
+        let cleanExplanation = simulationData.explanation
+          .replace(/Option [A-D]/gi, 'This approach')
+          .replace(/[A-D]\)/gi, '')
+          .replace(/choice [A-D]/gi, 'this choice')
+          .replace(/answer [A-D]/gi, 'the correct approach');
+        
+        simulationData.explanation = cleanExplanation;
+        
+        // ✅ CACHE THE NEW RESPONSE in session storage (device-specific cache)
+        const cache = {
+          data: simulationData,
+          timestamp: Date.now()
+        };
+        sessionStorage.setItem(`simulation_${termId}`, JSON.stringify(cache));
+        
+        // ✅ INCREMENT API CALL COUNT in Firestore
+        await incrementDailyCallCount(termId);
+        
+        console.log('💾 New scenario cached for:', term.term);
+        
+        setSimulationScenario(simulationData.scenario);
+        setSimulationChoices(simulationData.choices);
+        setCorrectAnswerIndex(simulationData.correctAnswer);
+        setSimulationResult(simulationData.explanation);
+      } else {
+        throw new Error('Invalid response format from AI');
       }
+    } catch (error) {
+      console.error('Error generating simulation with AI:', error);
+      // Enhanced fallback simulation - don't count fallbacks toward limit
+      const createFallbackScenario = (term) => {
+        const baseChoices = [
+          "Ignore it and continue with your work",
+          "Investigate carefully following security protocols", 
+          "Share the information with colleagues immediately",
+          "Report to the security team and follow procedures"
+        ];
+        
+        // Always keep "Report to security team" as the correct answer, but randomize its position
+        const correctAnswerPosition = Math.floor(Math.random() * 4);
+        
+        // Create shuffled choices while keeping the correct answer logic consistent
+        const shuffledChoices = [...baseChoices];
+        if (correctAnswerPosition !== 3) {
+          // Swap the correct answer to random position
+          [shuffledChoices[correctAnswerPosition], shuffledChoices[3]] = 
+          [shuffledChoices[3], shuffledChoices[correctAnswerPosition]];
+        }
+        
+        return {
+          scenario: `You encounter a cybersecurity situation related to ${term.term}. ${term.definition} What do you do?`,
+          choices: shuffledChoices,
+          correctAnswer: correctAnswerPosition,
+          explanation: "Always report security incidents to the proper authorities. Following established procedures ensures the situation is handled correctly and prevents further damage."
+        };
+      };
+
+      const fallbackData = createFallbackScenario(term);
       
-      // ✅ Clean the explanation to remove any letter references that might conflict
-      let cleanExplanation = simulationData.explanation
-        .replace(/Option [A-D]/gi, 'This approach')
-        .replace(/[A-D]\)/gi, '')
-        .replace(/choice [A-D]/gi, 'this choice')
-        .replace(/answer [A-D]/gi, 'the correct approach');
-      
-      simulationData.explanation = cleanExplanation;
-      
-      // ✅ CACHE THE NEW RESPONSE (overwrites old cache)
-      setCachedSimulation(termId, simulationData);
-      
-      // ✅ INCREMENT API CALL COUNT
-      incrementDailyCallCount(termId);
-      
-      console.log('💾 New scenario cached for:', term.term);
-      
-      setSimulationScenario(simulationData.scenario);
-      setSimulationChoices(simulationData.choices);
-      setCorrectAnswerIndex(simulationData.correctAnswer);
-      setSimulationResult(simulationData.explanation);
-    } else {
-      throw new Error('Invalid response format from AI');
+      setSimulationScenario(fallbackData.scenario);
+      setSimulationChoices(fallbackData.choices);
+      setCorrectAnswerIndex(fallbackData.correctAnswer);
+      setSimulationResult(fallbackData.explanation);
     }
- } catch (error) {
-  console.error('Error generating simulation with AI:', error);
-  // Enhanced fallback simulation - don't count fallbacks toward limit
-  const createFallbackScenario = (term) => {
-    const baseChoices = [
-      "Ignore it and continue with your work",
-      "Investigate carefully following security protocols", 
-      "Share the information with colleagues immediately",
-      "Report to the security team and follow procedures"
-    ];
-    
-    // Always keep "Report to security team" as the correct answer, but randomize its position
-    const correctAnswerPosition = Math.floor(Math.random() * 4);
-    
-    // Create shuffled choices while keeping the correct answer logic consistent
-    const shuffledChoices = [...baseChoices];
-    if (correctAnswerPosition !== 3) {
-      // Swap the correct answer to random position
-      [shuffledChoices[correctAnswerPosition], shuffledChoices[3]] = 
-      [shuffledChoices[3], shuffledChoices[correctAnswerPosition]];
-    }
-    
-    return {
-      scenario: `You encounter a cybersecurity situation related to ${term.term}. ${term.definition} What do you do?`,
-      choices: shuffledChoices,
-      correctAnswer: correctAnswerPosition,
-      explanation: "✅ Correct! Always report security incidents to the proper authorities. Following established procedures ensures the situation is handled correctly and prevents further damage."
-    };
+    setSimulationLoading(false);
   };
 
-  const fallbackData = createFallbackScenario(term);
-  
-  setSimulationScenario(fallbackData.scenario);
-  setSimulationChoices(fallbackData.choices);
-  setCorrectAnswerIndex(fallbackData.correctAnswer);
-  setSimulationResult(fallbackData.explanation);
-}
-  setSimulationLoading(false);
-};
-
-const handleChoiceSelect = (choiceIndex) => {
-  setUserChoice(choiceIndex);
-  
-  if (choiceIndex === correctAnswerIndex) {
-    setSimulationResult(`✅ Correct! ${simulationResult}`);
-  } else {
-    // Get the correct answer letter for display
-    const correctAnswerLetter = String.fromCharCode(65 + correctAnswerIndex);
-    setSimulationResult(`❌ Incorrect. The correct answer was ${correctAnswerLetter}. ${simulationResult}`);
-  }
-};
+  const handleChoiceSelect = (choiceIndex) => {
+    setUserChoice(choiceIndex);
+    
+    if (choiceIndex === correctAnswerIndex) {
+      setSimulationResult(`✅ Correct! ${simulationResult}`);
+    } else {
+      // Get the correct answer letter for display
+      const correctAnswerLetter = String.fromCharCode(65 + correctAnswerIndex);
+      setSimulationResult(`❌ Incorrect. The correct answer was ${correctAnswerLetter}. ${simulationResult}`);
+    }
+  };
 
   const closeSimulationModal = () => {
     setShowSimulationModal(false);
@@ -585,44 +567,39 @@ const handleChoiceSelect = (choiceIndex) => {
 
     try {
       const normalizedTermId = normalizeId(termId);
-      const userBookmarksKey = `bookmarks_${currentUser.uid}`;
-      const localBookmarks = JSON.parse(localStorage.getItem(userBookmarksKey) || '{}');
       
-      console.log('🔄 Current bookmarks before toggle:', Object.keys(localBookmarks));
-      console.log('🔍 Looking for term ID:', normalizedTermId);
+      // Get current user data
+      const userDataRef = doc(db, 'userGlossaryData', currentUser.uid);
+      const userDataSnap = await getDoc(userDataRef);
       
-      // Check if bookmark exists (with type-safe comparison)
-      const bookmarkExists = Array.from(bookmarkedTerms).some(bookmarkId => 
-        normalizeId(bookmarkId) === normalizedTermId
+      let bookmarks = [];
+      let apiCalls = {};
+      
+      if (userDataSnap.exists()) {
+        const userData = userDataSnap.data();
+        bookmarks = userData.bookmarks || [];
+        apiCalls = userData.apiCalls || {};
+      }
+      
+      // Check if bookmark exists
+      const existingBookmarkIndex = bookmarks.findIndex(bookmark => 
+        normalizeId(bookmark.termId) === normalizedTermId
       );
 
-      if (bookmarkExists) {
-        // Remove bookmark - find the exact key in localStorage (handles type differences)
-        let keyToRemove = null;
-        Object.keys(localBookmarks).forEach(key => {
-          if (normalizeId(key) === normalizedTermId) {
-            keyToRemove = key;
-          }
+      if (existingBookmarkIndex !== -1) {
+        // Remove bookmark
+        bookmarks.splice(existingBookmarkIndex, 1);
+        setBookmarkedTerms(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(normalizedTermId);
+          console.log('✅ Bookmark removed, new set:', Array.from(newSet));
+          return newSet;
         });
-
-        if (keyToRemove) {
-          delete localBookmarks[keyToRemove];
-          setBookmarkedTerms(prev => {
-            const newSet = new Set();
-            // Rebuild the set with normalized IDs
-            Object.keys(localBookmarks).forEach(key => {
-              newSet.add(normalizeId(key));
-            });
-            console.log('✅ Bookmark removed, new set:', Array.from(newSet));
-            return newSet;
-          });
-        }
       } else {
         // Add bookmark
         const term = glossaryData.find(t => normalizeId(t.id) === normalizedTermId);
         if (term) {
-          // Use the normalized ID as key
-          localBookmarks[normalizedTermId] = {
+          const newBookmark = {
             termId: normalizedTermId,
             term: term.term,
             definition: term.definition,
@@ -631,18 +608,19 @@ const handleChoiceSelect = (choiceIndex) => {
             icon: term.icon,
             bookmarkedAt: new Date().toISOString()
           };
+          bookmarks.push(newBookmark);
           setBookmarkedTerms(prev => {
             const newSet = new Set(prev);
             newSet.add(normalizedTermId);
             console.log('✅ Bookmark added, new set:', Array.from(newSet));
             return newSet;
           });
-          console.log('✅ Bookmark added:', term.term);
         }
       }
       
-      console.log('💾 Saving bookmarks:', Object.keys(localBookmarks));
-      localStorage.setItem(userBookmarksKey, JSON.stringify(localBookmarks));
+      // Save to Firestore
+      await saveUserData(bookmarks, apiCalls);
+      
     } catch (error) {
       console.error('Bookmark error:', error);
       alert('Error saving bookmark. Please try again.');
@@ -650,7 +628,7 @@ const handleChoiceSelect = (choiceIndex) => {
   };
 
   // Separate function specifically for removing bookmarks from the bookmarked section
-  const removeBookmark = (termId, e) => {
+  const removeBookmark = async (termId, e) => {
     if (e) {
       e.stopPropagation();
     }
@@ -664,36 +642,34 @@ const handleChoiceSelect = (choiceIndex) => {
     }
 
     try {
-      const userBookmarksKey = `bookmarks_${currentUser.uid}`;
-      const localBookmarks = JSON.parse(localStorage.getItem(userBookmarksKey) || '{}');
+      // Get current user data
+      const userDataRef = doc(db, 'userGlossaryData', currentUser.uid);
+      const userDataSnap = await getDoc(userDataRef);
       
-      // Find and remove the bookmark (handles type differences)
-      let keyToRemove = null;
-      Object.keys(localBookmarks).forEach(key => {
-        if (normalizeId(key) === normalizedTermId) {
-          keyToRemove = key;
-        }
-      });
-
-      if (keyToRemove) {
-        delete localBookmarks[keyToRemove];
-        
-        // Update state immediately - rebuild the entire set
-        setBookmarkedTerms(prev => {
-          const newSet = new Set();
-          Object.keys(localBookmarks).forEach(key => {
-            newSet.add(normalizeId(key));
-          });
-          console.log('✅ Bookmark removed from state, new set:', Array.from(newSet));
-          return newSet;
-        });
-        
-        // Save to localStorage
-        localStorage.setItem(userBookmarksKey, JSON.stringify(localBookmarks));
-        console.log('💾 Bookmarks saved after removal:', Object.keys(localBookmarks));
-      } else {
-        console.log('❌ Bookmark not found for removal:', normalizedTermId);
+      let bookmarks = [];
+      let apiCalls = {};
+      
+      if (userDataSnap.exists()) {
+        const userData = userDataSnap.data();
+        bookmarks = userData.bookmarks || [];
+        apiCalls = userData.apiCalls || {};
       }
+      
+      // Remove bookmark
+      const updatedBookmarks = bookmarks.filter(bookmark => 
+        normalizeId(bookmark.termId) !== normalizedTermId
+      );
+      
+      // Update state immediately
+      setBookmarkedTerms(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(normalizedTermId);
+        console.log('✅ Bookmark removed from state, new set:', Array.from(newSet));
+        return newSet;
+      });
+      
+      // Save to Firestore
+      await saveUserData(updatedBookmarks, apiCalls);
       
     } catch (error) {
       console.error('Error removing bookmark:', error);
@@ -728,145 +704,146 @@ const handleChoiceSelect = (choiceIndex) => {
   };
 
   const downloadPDF = () => {
-  try {
-    // Create new PDF document
-    const pdf = new jsPDF();
-    
-    // Set title
-    pdf.setFontSize(20);
-    pdf.setTextColor(40, 40, 40);
-    pdf.text('Cybersecurity Glossary', 20, 30);
-    
-    // Set subtitle
-    pdf.setFontSize(12);
-    pdf.setTextColor(100, 100, 100);
-    pdf.text('Your comprehensive guide to cybersecurity terminology', 20, 40);
-    
-    // Add date
-    const today = new Date().toLocaleDateString();
-    pdf.text(`Generated on: ${today}`, 20, 50);
-    
-    let yPosition = 70;
-    let pageNumber = 1;
-    
-    // Add terms to PDF
-    pdf.setFontSize(14);
-    pdf.setTextColor(40, 40, 40);
-    
-    filteredTerms.forEach((term, index) => {
-      // Check if we need a new page
-      if (yPosition > 250) {
-        pdf.addPage();
-        pageNumber++;
-        yPosition = 30;
-        
-        // Add page header
-        pdf.setFontSize(10);
-        pdf.setTextColor(100, 100, 100);
-        pdf.text(`Page ${pageNumber} - Cybersecurity Glossary`, 20, 20);
-        pdf.setFontSize(14);
-        pdf.setTextColor(40, 40, 40);
-      }
+    try {
+      // Create new PDF document
+      const pdf = new jsPDF();
       
-      // Clean the term name - remove icons/special characters
-      const cleanTerm = term.term.replace(/[^\x00-\x7F]/g, '').trim() || term.term;
+      // Set title
+      pdf.setFontSize(20);
+      pdf.setTextColor(40, 40, 40);
+      pdf.text('Cybersecurity Glossary', 20, 30);
       
-      // Term name
-      pdf.setFont(undefined, 'bold');
-      pdf.text(`• ${cleanTerm}`, 20, yPosition);
+      // Set subtitle
+      pdf.setFontSize(12);
+      pdf.setTextColor(100, 100, 100);
+      pdf.text('Your comprehensive guide to cybersecurity terminology', 20, 40);
       
-      // Category
-      pdf.setFont(undefined, 'normal');
-      pdf.setFontSize(10);
-      pdf.setTextColor(80, 80, 80);
-      pdf.text(`Category: ${term.category}`, 20, yPosition + 7);
+      // Add date
+      const today = new Date().toLocaleDateString();
+      pdf.text(`Generated on: ${today}`, 20, 50);
       
-      // Definition
-      pdf.setFontSize(11);
+      let yPosition = 70;
+      let pageNumber = 1;
+      
+      // Add terms to PDF
+      pdf.setFontSize(14);
       pdf.setTextColor(40, 40, 40);
       
-      // Clean definition text
-      const cleanDefinition = term.definition.replace(/[^\x00-\x7F]/g, ' ').trim() || term.definition;
-      
-      // Split definition into multiple lines if too long
-      const definitionLines = pdf.splitTextToSize(`Definition: ${cleanDefinition}`, 170);
-      pdf.text(definitionLines, 20, yPosition + 15);
-      
-      let definitionHeight = definitionLines.length * 6;
-      
-      // Example if it exists
-      if (term.example) {
-        // Clean example text
-        const cleanExample = term.example.replace(/[^\x00-\x7F]/g, ' ').trim() || term.example;
-        const exampleLines = pdf.splitTextToSize(`Example: ${cleanExample}`, 170);
-        pdf.text(exampleLines, 20, yPosition + 15 + definitionHeight);
-        yPosition += 15 + definitionHeight + (exampleLines.length * 6) + 10;
-      } else {
-        yPosition += 15 + definitionHeight + 10;
-      }
-      
-      // Add separator line
-      pdf.setDrawColor(200, 200, 200);
-      pdf.line(20, yPosition - 5, 190, yPosition - 5);
-      
-      yPosition += 5;
-    });
-    
-    // Add bookmarks section if there are bookmarks
-    if (bookmarkedTerms.size > 0 && !flashcardMode) {
-      if (yPosition > 200) {
-        pdf.addPage();
-        pageNumber++;
-        yPosition = 30;
-      }
-      
-      pdf.setFontSize(16);
-      pdf.setTextColor(40, 40, 40);
-      pdf.setFont(undefined, 'bold');
-      pdf.text('Your Bookmarked Terms', 20, yPosition);
-      yPosition += 15;
-      
-      glossaryData
-        .filter(term => {
-          const isBookmarked = Array.from(bookmarkedTerms).some(bookmarkId => 
-            normalizeId(bookmarkId) === normalizeId(term.id)
-          );
-          return isBookmarked;
-        })
-        .forEach(term => {
-          if (yPosition > 250) {
-            pdf.addPage();
-            pageNumber++;
-            yPosition = 30;
-          }
+      filteredTerms.forEach((term, index) => {
+        // Check if we need a new page
+        if (yPosition > 250) {
+          pdf.addPage();
+          pageNumber++;
+          yPosition = 30;
           
-          // Clean term name for bookmarks too
-          const cleanTerm = term.term.replace(/[^\x00-\x7F]/g, '').trim() || term.term;
-          
-          pdf.setFontSize(12);
-          pdf.setFont(undefined, 'bold');
-          pdf.text(`• ${cleanTerm}`, 25, yPosition);
-          
-          pdf.setFont(undefined, 'normal');
+          // Add page header
           pdf.setFontSize(10);
-          
-          // Clean definition for bookmarks
-          const cleanDefinition = term.definition.replace(/[^\x00-\x7F]/g, ' ').trim() || term.definition;
-          const definitionLines = pdf.splitTextToSize(cleanDefinition, 160);
-          pdf.text(definitionLines, 25, yPosition + 7);
-          
-          yPosition += 7 + (definitionLines.length * 5) + 5;
-        });
+          pdf.setTextColor(100, 100, 100);
+          pdf.text(`Page ${pageNumber} - Cybersecurity Glossary`, 20, 20);
+          pdf.setFontSize(14);
+          pdf.setTextColor(40, 40, 40);
+        }
+        
+        // Clean the term name - remove icons/special characters
+        const cleanTerm = term.term.replace(/[^\x00-\x7F]/g, '').trim() || term.term;
+        
+        // Term name
+        pdf.setFont(undefined, 'bold');
+        pdf.text(`• ${cleanTerm}`, 20, yPosition);
+        
+        // Category
+        pdf.setFont(undefined, 'normal');
+        pdf.setFontSize(10);
+        pdf.setTextColor(80, 80, 80);
+        pdf.text(`Category: ${term.category}`, 20, yPosition + 7);
+        
+        // Definition
+        pdf.setFontSize(11);
+        pdf.setTextColor(40, 40, 40);
+        
+        // Clean definition text
+        const cleanDefinition = term.definition.replace(/[^\x00-\x7F]/g, ' ').trim() || term.definition;
+        
+        // Split definition into multiple lines if too long
+        const definitionLines = pdf.splitTextToSize(`Definition: ${cleanDefinition}`, 170);
+        pdf.text(definitionLines, 20, yPosition + 15);
+        
+        let definitionHeight = definitionLines.length * 6;
+        
+        // Example if it exists
+        if (term.example) {
+          // Clean example text
+          const cleanExample = term.example.replace(/[^\x00-\x7F]/g, ' ').trim() || term.example;
+          const exampleLines = pdf.splitTextToSize(`Example: ${cleanExample}`, 170);
+          pdf.text(exampleLines, 20, yPosition + 15 + definitionHeight);
+          yPosition += 15 + definitionHeight + (exampleLines.length * 6) + 10;
+        } else {
+          yPosition += 15 + definitionHeight + 10;
+        }
+        
+        // Add separator line
+        pdf.setDrawColor(200, 200, 200);
+        pdf.line(20, yPosition - 5, 190, yPosition - 5);
+        
+        yPosition += 5;
+      });
+      
+      // Add bookmarks section if there are bookmarks
+      if (bookmarkedTerms.size > 0 && !flashcardMode) {
+        if (yPosition > 200) {
+          pdf.addPage();
+          pageNumber++;
+          yPosition = 30;
+        }
+        
+        pdf.setFontSize(16);
+        pdf.setTextColor(40, 40, 40);
+        pdf.setFont(undefined, 'bold');
+        pdf.text('Your Bookmarked Terms', 20, yPosition);
+        yPosition += 15;
+        
+        glossaryData
+          .filter(term => {
+            const isBookmarked = Array.from(bookmarkedTerms).some(bookmarkId => 
+              normalizeId(bookmarkId) === normalizeId(term.id)
+            );
+            return isBookmarked;
+          })
+          .forEach(term => {
+            if (yPosition > 250) {
+              pdf.addPage();
+              pageNumber++;
+              yPosition = 30;
+            }
+            
+            // Clean term name for bookmarks too
+            const cleanTerm = term.term.replace(/[^\x00-\x7F]/g, '').trim() || term.term;
+            
+            pdf.setFontSize(12);
+            pdf.setFont(undefined, 'bold');
+            pdf.text(`• ${cleanTerm}`, 25, yPosition);
+            
+            pdf.setFont(undefined, 'normal');
+            pdf.setFontSize(10);
+            
+            // Clean definition for bookmarks
+            const cleanDefinition = term.definition.replace(/[^\x00-\x7F]/g, ' ').trim() || term.definition;
+            const definitionLines = pdf.splitTextToSize(cleanDefinition, 160);
+            pdf.text(definitionLines, 25, yPosition + 7);
+            
+            yPosition += 7 + (definitionLines.length * 5) + 5;
+          });
+      }
+      
+      // Save the PDF
+      pdf.save('cybersecurity-glossary.pdf');
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
     }
-    
-    // Save the PDF
-    pdf.save('cybersecurity-glossary.pdf');
-    
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    alert('Error generating PDF. Please try again.');
-  }
-};
+  };
+
   const shuffleDailyTerm = () => {
     if (glossaryData.length > 0) {
       const randomIndex = Math.floor(Math.random() * glossaryData.length);
@@ -1041,15 +1018,10 @@ const handleChoiceSelect = (choiceIndex) => {
                         e.stopPropagation();
                         openSimulationModal(term);
                       }}
-                      title={
-                        hasReachedDailyLimit(term.id) 
-                          ? `Daily limit reached for ${term.term}. Try again tomorrow!`
-                          : `Practice with AI simulation (${getDailyCallCount(term.id)}/2 today)`
-                      }
-                      disabled={hasReachedDailyLimit(term.id)}
+                      title={`Practice with AI simulation`}
                     >
                       <Play size={14} />
-                      {hasReachedDailyLimit(term.id) ? "Limit Reached" : "Practice"}
+                      Practice
                     </button>
                     
                     {currentUser && (
@@ -1096,12 +1068,7 @@ const handleChoiceSelect = (choiceIndex) => {
                       e.stopPropagation();
                       openSimulationModal(term);
                     }}
-                    title={
-                      hasReachedDailyLimit(term.id) 
-                        ? `Daily limit reached for ${term.term}. Try again tomorrow!`
-                        : `Practice with AI simulation (${getDailyCallCount(term.id)}/2 today)`
-                    }
-                    disabled={hasReachedDailyLimit(term.id)}
+                    title={`Practice with AI simulation`}
                   >
                     <Play size={16} />
                   </button>
@@ -1334,12 +1301,12 @@ const handleChoiceSelect = (choiceIndex) => {
       {showSimulationModal && (
         <div className="modal-overlay2">
           <div className="modal-content2 simulation-modal">
-           <div className="modal-header2">
-  <h2>🎯 AI Security Simulation: {selectedTermForSimulation?.term}</h2>
-  <button className="close-btn2" onClick={closeSimulationModal}>
-    <X size={24} />
-  </button>
-</div>
+            <div className="modal-header2">
+              <h2>🎯 AI Security Simulation: {selectedTermForSimulation?.term}</h2>
+              <button className="close-btn2" onClick={closeSimulationModal}>
+                <X size={24} />
+              </button>
+            </div>
             
             <div className="modal-body">
               {simulationLoading ? (
@@ -1376,15 +1343,6 @@ const handleChoiceSelect = (choiceIndex) => {
                     <div className="result-box">
                       <h3>💡 Feedback:</h3>
                       <p>{simulationResult}</p>
-                      {/* Only show "Try Another Scenario" if under daily limit */}
-                      {!hasReachedDailyLimit(selectedTermForSimulation?.id) && (
-                        <button 
-                          className="try-again-btn"
-                          onClick={() => openSimulationModal(selectedTermForSimulation)}
-                        >
-                          Try Another Scenario
-                        </button>
-                      )}
                     </div>
                   )}
                 </>
