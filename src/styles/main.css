@@ -1067,41 +1067,37 @@ input[type="password"]::-webkit-inner-spin-button {
   margin-top: 2rem;
 }
 
-.progress-info {
+.progress-bar-container {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.8rem;
-}
-
-.progress-label {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-color);
-}
-
-.progress-percentage {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--active-link);
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 
 .progress-bar {
-  width: 100%;
+  flex: 1;
   height: 12px;
   background: var(--hover-color);
   border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 1.5rem;
   position: relative;
+  border: 1px solid grey;
 }
 
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, #4285f4, #34a853, #fbbc04);
   transition: width 0.8s ease;
-  border-radius: 6px;
+  border-radius: 4px;
   position: relative;
+}
+
+.progress-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+  min-width: 80px;
 }
 
 .progress-fill::after {
