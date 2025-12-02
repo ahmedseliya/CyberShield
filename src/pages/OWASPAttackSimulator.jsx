@@ -26,60 +26,73 @@ const OWASPAttackSimulator = () => {
   // Initialize Auth
   const auth = getAuth();
 
-  // Listen for auth state changes
+  // Listen for auth state changes - FIXED VERSION
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
         // Load user's completed roles
-        const userCompletedRoles = await getCompletedRoles();
+        const userCompletedRoles = await getCompletedRoles(user);
         setCompletedRoles(userCompletedRoles);
+      } else {
+        // Reset completed roles when user logs out
+        setCompletedRoles({});
       }
       setUserLoading(false);
     });
     return unsubscribe;
   }, []);
 
-  // Get completed roles from Firestore (user-based)
-  const getCompletedRoles = async () => {
-    if (!user) return {};
+  // Get completed roles from Firestore (user-based) - FIXED VERSION
+  const getCompletedRoles = async (currentUser = user) => {
+    if (!currentUser) return {};
     
     try {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      return userDoc.exists() ? userDoc.data().completedRoles || {} : {};
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        return userData.completedRoles || {};
+      }
+      return {};
     } catch (error) {
       console.error('Error getting completed roles:', error);
       return {};
     }
   };
 
-  // Mark role as completed in Firestore
+  // Mark role as completed in Firestore - FIXED VERSION
   const markRoleCompleted = async (scenarioKey, completedRole) => {
     if (!user) return;
     
     try {
-      const completed = await getCompletedRoles();
-      if (!completed[scenarioKey]) {
-        completed[scenarioKey] = [];
+      // Get current completed roles first
+      const currentCompleted = await getCompletedRoles(user);
+      const updatedCompleted = { ...currentCompleted };
+      
+      if (!updatedCompleted[scenarioKey]) {
+        updatedCompleted[scenarioKey] = [];
       }
-      if (!completed[scenarioKey].includes(completedRole)) {
-        completed[scenarioKey].push(completedRole);
+      
+      if (!updatedCompleted[scenarioKey].includes(completedRole)) {
+        updatedCompleted[scenarioKey].push(completedRole);
         
         // Update in Firestore
         await setDoc(doc(db, 'users', user.uid), {
-          completedRoles: completed
+          completedRoles: updatedCompleted,
+          lastUpdated: new Date().toISOString()
         }, { merge: true });
         
-        // Update local state
-        setCompletedRoles(completed);
+        // Update local state immediately
+        setCompletedRoles(updatedCompleted);
       }
     } catch (error) {
       console.error('Error marking role completed:', error);
     }
   };
 
-  // Check if role is completed
+  // Check if role is completed - FIXED VERSION
   const isRoleCompleted = (scenarioKey, checkRole) => {
+    if (!user) return false;
     return completedRoles[scenarioKey] && completedRoles[scenarioKey].includes(checkRole);
   };
 
@@ -105,41 +118,41 @@ const OWASPAttackSimulator = () => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Get current day based on user's start date - MODIFIED VERSION
- // Get current day based on user's start date - FIXED VERSION
-const calculateCurrentDay = async () => {
-  if (!user) return 1;
-  
-  try {
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
+  // Get current day based on user's start date
+  const calculateCurrentDay = async () => {
+    if (!user) return 1;
     
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      const startDate = userData.startDate;
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
       
-      // If startDate exists, calculate days from start date
-      if (startDate) {
-        const start = new Date(startDate);
-        const today = new Date();
-        const diffTime = Math.abs(today - start);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays;
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const startDate = userData.startDate;
+        
+        // If startDate exists, calculate days from start date
+        if (startDate) {
+          const start = new Date(startDate);
+          const today = new Date();
+          const diffTime = Math.abs(today - start);
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          return diffDays;
+        }
       }
+      
+      // New user - set start date to today
+      const today = new Date().toDateString();
+      await setDoc(doc(db, 'users', user.uid), {
+        startDate: today,
+        completedRoles: {}
+      }, { merge: true });
+      
+      return 1; // Day 1 for new users
+    } catch (error) {
+      console.error('Error calculating current day:', error);
+      return 1;
     }
-    
-    // New user - set start date to today
-    const today = new Date().toDateString();
-    await setDoc(doc(db, 'users', user.uid), {
-      startDate: today,
-      completedRoles: {}
-    }, { merge: true });
-    
-    return 1; // Day 1 for new users
-  } catch (error) {
-    console.error('Error calculating current day:', error);
-    return 1;
-  }
-};
+  };
+
   // Update timer every second
   useEffect(() => {
     if (!nextRefreshTime) return;
@@ -252,7 +265,8 @@ const calculateCurrentDay = async () => {
   };
 
   const startScenario = (scenarioKey, selectedRole) => {
-    if (isRoleCompleted(scenarioKey, selectedRole)) return;
+    // Only check completion if user is logged in
+    if (user && isRoleCompleted(scenarioKey, selectedRole)) return;
     
     setCurrentScenario(scenarioKey);
     setRole(selectedRole);
@@ -308,13 +322,24 @@ const calculateCurrentDay = async () => {
 
   const handleLogin = async () => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
       setShowLogin(false);
+      setEmail('');
+      setPassword('');
+      
+      // Force reload completed roles after login
+      const userCompletedRoles = await getCompletedRoles(userCredential.user);
+      setCompletedRoles(userCompletedRoles);
     } catch (error) {
       // If login fails, try to create new account
       try {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         setShowLogin(false);
+        setEmail('');
+        setPassword('');
+        
+        // Initialize completed roles for new user
+        setCompletedRoles({});
       } catch (signUpError) {
         console.error('Authentication error:', signUpError);
         alert('Authentication failed. Please try again.');
@@ -324,7 +349,7 @@ const calculateCurrentDay = async () => {
 
   const handleLogout = async () => {
     await auth.signOut();
-    setCompletedRoles({});
+    // Completed roles will be reset by the auth state listener
   };
 
   const renderLoginSection = () => (
@@ -370,10 +395,25 @@ const calculateCurrentDay = async () => {
 
     return (
       <div className="scenario-selection">
-        {/* Main Title Card - ONLY wraps the title section */}
-        <div className="main-title-card">
-          <h1 className="main-title">OWASP Attack Scenario Simulator</h1>
-          <p className="subtitle">Choose your path: Attack or Defend</p>
+        {/* Header Section */}
+        <div className="header-section">
+          <div className="main-title-card">
+            <h1 className="main-title">OWASP Attack Scenario Simulator</h1>
+            <p className="subtitle">Choose your path: Attack or Defend</p>
+          </div>
+          
+          {/* User Authentication Section */}
+          <div className="auth-section">
+            {user ? (
+              <div className="user-info">
+                
+              </div>
+            ) : (
+              <button onClick={() => setShowLogin(true)} className="login-prompt-btn">
+                🔐 Login to Save Progress
+              </button>
+            )}
+          </div>
         </div>
         
         {/* Daily Challenges Card */}
@@ -406,20 +446,27 @@ const calculateCurrentDay = async () => {
               
               <div className="role-buttons">
                 <button 
-                  className={`role-btn attacker-btn ${isRoleCompleted(key, 'attacker') ? 'disabled' : ''}`}
+                  className={`role-btn attacker-btn ${user && isRoleCompleted(key, 'attacker') ? 'disabled' : ''}`}
                   onClick={() => startScenario(key, 'attacker')}
-                  disabled={isRoleCompleted(key, 'attacker')}
+                  disabled={user && isRoleCompleted(key, 'attacker')}
                 >
-                  {isRoleCompleted(key, 'attacker') ? '🎯 Completed' : '🎯 Play as Attacker'}
+                  {user && isRoleCompleted(key, 'attacker') ? '🎯 Completed' : '🎯 Play as Attacker'}
                 </button>
                 <button 
-                  className={`role-btn defender-btn ${isRoleCompleted(key, 'defender') ? 'disabled' : ''}`}
+                  className={`role-btn defender-btn ${user && isRoleCompleted(key, 'defender') ? 'disabled' : ''}`}
                   onClick={() => startScenario(key, 'defender')}
-                  disabled={isRoleCompleted(key, 'defender')}
+                  disabled={user && isRoleCompleted(key, 'defender')}
                 >
-                  {isRoleCompleted(key, 'defender') ? '🛡️ Completed' : '🛡️ Play as Defender'}
+                  {user && isRoleCompleted(key, 'defender') ? '🛡️ Completed' : '🛡️ Play as Defender'}
                 </button>
               </div>
+
+              {/* Show login prompt if not logged in */}
+              {!user && (
+                <div className="login-prompt">
+                  <p>🔐 Login to save your progress</p>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -449,8 +496,8 @@ const calculateCurrentDay = async () => {
 
     const isComplete = currentStory.choices.length === 0;
 
-    // Mark as completed when scenario is finished
-    if (isComplete && !showExplanation) {
+    // Mark as completed when scenario is finished (only if user is logged in)
+    if (isComplete && !showExplanation && user) {
       markRoleCompleted(currentScenario, role);
     }
 
@@ -502,6 +549,17 @@ const calculateCurrentDay = async () => {
           <div className="completion-box">
             <h3>🎉 Scenario Complete!</h3>
             <p>You've successfully completed this {role === 'attacker' ? 'attack' : 'defense'} scenario.</p>
+            {!user && (
+              <div className="save-progress-reminder">
+                <p>🔐 <strong>Login to save your progress</strong> across all devices</p>
+                <button 
+                  onClick={() => setShowLogin(true)} 
+                  className="login-reminder-btn"
+                >
+                  Login Now
+                </button>
+              </div>
+            )}
             <div className="completion-actions">
               <button className="action-btn primary" onClick={resetGame}>
                 Back to Challenges

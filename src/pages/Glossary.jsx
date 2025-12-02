@@ -1340,11 +1340,6 @@ Make the scenario realistic and educational. Focus on practical cybersecurity pr
           <div className="modal-content2 simulation-modal">
             <div className="modal-header2">
               <h2>🎯 AI Security Simulation: {selectedTermForSimulation.term}</h2>
-              <div className="simulation-usage">
-                <span className="usage-count">
-                  {currentUser ? `Used today: ${apiCallCounts[selectedTermForSimulation.id] || 0}/2` : 'Login to track usage'}
-                </span>
-              </div>
               <button className="close-btn2" onClick={closeSimulationModal}>
                 <X size={24} />
               </button>
