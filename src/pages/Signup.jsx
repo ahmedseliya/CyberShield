@@ -1,9 +1,9 @@
 // Signup.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FaUser, FaLock, FaEnvelope, FaGoogle } from "react-icons/fa";
 import { FiEye, FiEyeOff } from "react-icons/fi"; 
-import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from "firebase/auth";
 import { doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import AuthNav from "../components/AuthNav";
@@ -23,11 +23,33 @@ function Signup({ setIsLoggedIn }) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false); 
   const navigate = useNavigate();
 
-
   const googleProvider = new GoogleAuthProvider();
   googleProvider.setCustomParameters({
     prompt: 'select_account' 
   });
+
+  // ✅ ADDED: Handle Google redirect result (for mobile)
+  useEffect(() => {
+    const handleGoogleRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          setGoogleLoading(true);
+          await handleGoogleAuthSuccess(result.user);
+        }
+      } catch (error) {
+        console.error("Google redirect error:", error);
+        setGoogleLoading(false);
+      }
+    };
+    handleGoogleRedirect();
+  }, []);
+
+  // ✅ ADDED: Check if mobile device
+  const isMobileDevice = () => {
+    return window.innerWidth <= 768 || 
+           /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
 
   const handleChange = (field, value) => {
     setFormData(prev => ({
@@ -126,18 +148,10 @@ function Signup({ setIsLoggedIn }) {
     }
   };
 
-  // ✅ FIXED: Google Sign In - Auto login after signup
-  const handleGoogleSignIn = async () => {
-    setGoogleLoading(true);
+  // ✅ ADDED: Common Google auth success handler
+  const handleGoogleAuthSuccess = async (user) => {
     try {
-      console.log("🔄 Starting Google signup...");
-      
-      // Step 1: Authenticate with Google
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-      console.log("✅ Google authentication successful:", user.email);
-
-      // Step 2: Check if user exists in Firestore
+      // Check if user exists in Firestore
       const userDoc = await getDoc(doc(db, "users", user.uid));
       
       if (!userDoc.exists()) {
@@ -184,10 +198,10 @@ function Signup({ setIsLoggedIn }) {
         });
       }
 
-      // Step 3: Wait a moment for state to update properly
+      // Wait a moment for state to update properly
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Step 4: Set authentication state
+      // Set authentication state
       setIsLoggedIn(true);
       localStorage.setItem('isLoggedIn', 'true');
       localStorage.setItem('user', JSON.stringify({
@@ -199,9 +213,45 @@ function Signup({ setIsLoggedIn }) {
 
       console.log("✅ Authentication state set successfully");
 
-      // Step 5: Show success message and redirect
+      // Show success message and redirect
       alert("✅ Google signup successful! Welcome to Cyber Shield!");
       navigate("/");
+
+    } catch (error) {
+      console.error("Error in Google auth success:", error);
+      alert("❌ Error completing Google signup. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // ✅ UPDATED: Google Sign In with mobile support
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    
+    try {
+      // ✅ ADDED: Mobile device check
+      if (isMobileDevice()) {
+        console.log("📱 Mobile device detected - using redirect method");
+        
+        // Try redirect method for mobile
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          // User will be redirected to Google OAuth page
+          // The result will be handled in useEffect above
+          return;
+        } catch (redirectError) {
+          console.error("Redirect failed, trying popup:", redirectError);
+          // Continue to popup method as fallback
+        }
+      }
+
+      // For desktop OR if mobile redirect failed
+      console.log("💻 Desktop device or mobile fallback - using popup");
+      
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      await handleGoogleAuthSuccess(user);
 
     } catch (error) {
       console.error("❌ Google sign in error:", error);
@@ -214,6 +264,10 @@ function Signup({ setIsLoggedIn }) {
           break;
         case 'auth/popup-blocked':
           errorMessage = "Popup was blocked. Please allow popups for this site.";
+          // ✅ ADDED: Mobile-specific suggestion
+          if (isMobileDevice()) {
+            errorMessage += "\n\n📱 On mobile? Try using Chrome/Safari browser.";
+          }
           break;
         case 'auth/network-request-failed':
           errorMessage = "Network error. Please check your connection.";
@@ -390,22 +444,24 @@ function Signup({ setIsLoggedIn }) {
               </span>
               {errors.confirmPassword && <span className="error-message">{errors.confirmPassword}</span>}
             </div>
-{/* ✅ Google Sign In Button */}
-          <div className="social-login">
-            <button 
-              type="button" 
-              className="google-btn"
-              onClick={handleGoogleSignIn}
-              disabled={googleLoading}
-            >
-              <FaGoogle className="google-icon" />
-              {googleLoading ? "Signing up..." : "Continue with Google"}
-            </button>
             
-            <div className="divider">
-              <span>or sign up with email</span>
+            {/* ✅ Google Sign In Button */}
+            <div className="social-login">
+              <button 
+                type="button" 
+                className="google-btn"
+                onClick={handleGoogleSignIn}
+                disabled={googleLoading}
+              >
+                <FaGoogle className="google-icon" />
+                {googleLoading ? "Signing up..." : "Continue with Google"}
+              </button>
+              
+              <div className="divider">
+                <span>or sign up with email</span>
+              </div>
             </div>
-          </div>
+            
             <button type="submit" disabled={loading}>
               {loading ? "Creating Account..." : "Signup with Email"}
             </button>

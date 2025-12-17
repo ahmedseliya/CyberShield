@@ -1,14 +1,13 @@
 // Login.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FaUser, FaLock, FaGoogle } from "react-icons/fa";
 import { FiEye, FiEyeOff } from "react-icons/fi";
-import { signInWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { signInWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from "firebase/auth";
 import { doc, updateDoc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import AuthNav from "../components/AuthNav"; 
 import { validateField, sanitizeInput } from "./validation";
-
 
 function Login({ setIsLoggedIn }) {
   const [formData, setFormData] = useState({
@@ -29,6 +28,29 @@ function Login({ setIsLoggedIn }) {
   googleProvider.setCustomParameters({
     prompt: 'select_account' 
   });
+
+  // ✅ ADDED: Handle Google redirect result (for mobile)
+  useEffect(() => {
+    const handleGoogleRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          setGoogleLoading(true);
+          await handleGoogleAuthSuccess(result.user);
+        }
+      } catch (error) {
+        console.error("Google redirect error:", error);
+        setGoogleLoading(false);
+      }
+    };
+    handleGoogleRedirect();
+  }, []);
+
+  // ✅ ADDED: Check if mobile device
+  const isMobileDevice = () => {
+    return window.innerWidth <= 768 || 
+           /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
 
   // Custom alert function
   const showRedAlert = (message) => {
@@ -77,13 +99,9 @@ function Login({ setIsLoggedIn }) {
     }
   };
 
-  // ✅ FIXED: Google Sign In for Login
-  const handleGoogleSignIn = async () => {
-    setGoogleLoading(true);
+  // ✅ ADDED: Common Google auth success handler
+  const handleGoogleAuthSuccess = async (user) => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-
       // ✅ FIRST check if user exists in Firestore
       const userDoc = await getDoc(doc(db, "users", user.uid));
       
@@ -144,6 +162,42 @@ function Login({ setIsLoggedIn }) {
       navigate("/");
 
     } catch (error) {
+      console.error("Google auth success error:", error);
+      alert("❌ Error completing Google login. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // ✅ UPDATED: Google Sign In with mobile support
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    
+    try {
+      // ✅ ADDED: Mobile device check
+      if (isMobileDevice()) {
+        console.log("📱 Mobile device detected - using redirect method");
+        
+        // Try redirect method for mobile
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          // User will be redirected to Google OAuth page
+          // The result will be handled in useEffect above
+          return;
+        } catch (redirectError) {
+          console.error("Redirect failed, trying popup:", redirectError);
+          // Continue to popup method as fallback
+        }
+      }
+
+      // For desktop OR if mobile redirect failed
+      console.log("💻 Desktop device or mobile fallback - using popup");
+      
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      await handleGoogleAuthSuccess(user);
+
+    } catch (error) {
       console.error("Google login error:", error);
       let errorMessage = "Google login failed. Please try again.";
       
@@ -153,6 +207,10 @@ function Login({ setIsLoggedIn }) {
           break;
         case 'auth/popup-blocked':
           errorMessage = "Popup was blocked. Please allow popups for this site.";
+          // ✅ ADDED: Mobile-specific suggestion
+          if (isMobileDevice()) {
+            errorMessage += "\n\n📱 On mobile? Try using Chrome/Safari browser.";
+          }
           break;
         case 'auth/network-request-failed':
           errorMessage = "Network error. Please check your connection.";
