@@ -205,9 +205,9 @@ function Progress() {
     }));
   };
 
-  // Submit quiz - FIXED LOGIC
+  // Submit quiz - FIXED LOGIC - CHANGED FROM 10 TO 6
   const handleSubmit = async () => {
-    if (!user || !todayQuiz || !currentQuizVersion || Object.keys(answers).length !== 10) return;
+    if (!user || !todayQuiz || !currentQuizVersion || Object.keys(answers).length !== 6) return;
     
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
@@ -257,7 +257,7 @@ function Progress() {
     const today = new Date().toISOString().split('T')[0];
     
     try {
-      // Save user attempt
+      // Save user attempt - CHANGED FROM 10 TO 6
       const attemptId = `${user.uid}_${currentQuizVersion}`;
       await setDoc(doc(db, 'userAttempts', attemptId), {
         userId: user.uid,
@@ -268,7 +268,7 @@ function Progress() {
         quizVersion: currentQuizVersion,
         answers: answerDetails,
         score: finalScore,
-        totalQuestions: 10,
+        totalQuestions: 6, // CHANGED FROM 10 TO 6
         submittedAt: serverTimestamp(),
         timeTaken: new Date().toISOString()
       });
@@ -283,7 +283,7 @@ function Progress() {
       // Update user statistics
       await updateUserStats(user.uid, finalScore);
       
-      // Set user attempt and switch to results view
+      // Set user attempt and switch to results view - CHANGED FROM 10 TO 6
       const userAttemptData = {
         userId: user.uid,
         userEmail: user.email,
@@ -293,7 +293,7 @@ function Progress() {
         quizVersion: currentQuizVersion,
         answers: answerDetails,
         score: finalScore,
-        totalQuestions: 10,
+        totalQuestions: 6, // CHANGED FROM 10 TO 6
         submittedAt: new Date(),
         timeTaken: new Date().toISOString()
       };
@@ -584,12 +584,12 @@ function Progress() {
               <p>You have already completed this quiz. Click "View Results" above to see your score.</p>
               <div className="quiz-status-banner completed">
                 <CheckCircle size={20} />
-                <span>Quiz Submitted - Score: {userAttempt?.score || 0}/10</span>
+                <span>Quiz Submitted - Score: {userAttempt?.score || 0}/6</span> {/* CHANGED FROM 10 TO 6 */}
               </div>
             </div>
           ) : (
             <>
-              <p>Complete all 10 cybersecurity questions. New quiz sets can be generated anytime.</p>
+              <p>Complete all 6 cybersecurity questions. New quiz sets can be generated anytime.</p> {/* CHANGED FROM 10 TO 6 */}
               
               <div className="quiz-stats">
                 <div className="stat-item">
@@ -638,18 +638,18 @@ function Progress() {
                 <div className="progress-bar">
                   <div 
                     className="progress-fill"
-                    style={{ width: `${(Object.keys(answers).length / 10) * 100}%` }}
+                    style={{ width: `${(Object.keys(answers).length / 6) * 100}%` }} 
                   ></div>
                 </div>
                 <p className="progress-text">
-                  {Object.keys(answers).length} / 10 questions answered
+                  {Object.keys(answers).length} / 6 questions answered {/* CHANGED FROM 10 TO 6 */}
                 </p>
               </div>
               
               <button
                 onClick={handleSubmit}
-                disabled={Object.keys(answers).length !== 10}
-                className={`submit-button ${Object.keys(answers).length === 10 ? 'active' : ''}`}
+                disabled={Object.keys(answers).length !== 6} 
+                className={`submit-button ${Object.keys(answers).length === 6 ? 'active' : ''}`} 
               >
                 <Brain size={20} />
                 Submit Answers

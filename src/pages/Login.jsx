@@ -25,8 +25,10 @@ function Login({ setIsLoggedIn }) {
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [blockUntil, setBlockUntil] = useState(null);
 
-  // Google Auth Provider
   const googleProvider = new GoogleAuthProvider();
+  googleProvider.setCustomParameters({
+    prompt: 'select_account' 
+  });
 
   // Custom alert function
   const showRedAlert = (message) => {

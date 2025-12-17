@@ -23,8 +23,11 @@ function Signup({ setIsLoggedIn }) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false); 
   const navigate = useNavigate();
 
-  // Google Auth Provider
+
   const googleProvider = new GoogleAuthProvider();
+  googleProvider.setCustomParameters({
+    prompt: 'select_account' 
+  });
 
   const handleChange = (field, value) => {
     setFormData(prev => ({
