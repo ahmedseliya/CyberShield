@@ -3,7 +3,7 @@ import { Shield, Brain, AlertTriangle, CheckCircle, XCircle, Download, Loader, S
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // 🔑 YOUR GEMINI API KEY - REPLACE WITH YOUR ACTUAL KEY
-const GEMINI_API_KEY = 'AIzaSyASr8tHcapJnUJJm3Jfso7G8KgWNv4pUhk';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY_ThreatModel;
 
 // Initialize Google AI client
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
