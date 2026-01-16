@@ -1425,7 +1425,6 @@ if (step === 2) {
   ))}
 </div>
           </div>
-
           {/* AI Chat Assistant */}
           <div className="tm-chat-card">
             <h3>

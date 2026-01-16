@@ -7,7 +7,7 @@ import jsPDF from 'jspdf';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // 🔑 YOUR GEMINI API KEY
-const GEMINI_API_KEY = 'AIzaSyCl7aaCyhPiR_s-zr5cjWH0akCxqmfuSG4';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY_GlossaryAI;
 
 // Initialize Google AI client
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);

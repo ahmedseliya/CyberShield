@@ -27,3 +27,5 @@ service-account
 serviceAccountKey.json
 # Ignore the service account key in the vulnerability scheduler folder
 vulnerability-scheduler/serviceAccountKey.json
+**/.env
+

@@ -14,7 +14,7 @@ const SecurityHeaderAnalyzer = () => {
     const WORKER_URL = "https://header-proxy.ahmedseliya07.workers.dev/";
 
     // --- GEMINI API CONFIGURATION ---
-    const GEMINI_API_KEY = "AIzaSyASr8tHcapJnUJJm3Jfso7G8KgWNv4pUhk"; // Replace with your actual API key
+    const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY_HeaderAnalyzer;// Replace with your actual API key
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
