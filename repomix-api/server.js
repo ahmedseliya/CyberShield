@@ -39,7 +39,7 @@ app.post('/analyze', async (req, res) => {
     const tempDir = path.join(__dirname, 'temp', Date.now().toString());
     fs.mkdirSync(tempDir, { recursive: true });
     
-    // ✅ FIXED: Remove --no-progress flag
+    // ✅ FIXED: Use correct Repomix syntax for v1.1.0
     // Build repomix command
     const cmd = [
       'npx',
@@ -48,23 +48,11 @@ app.post('/analyze', async (req, res) => {
       `--output=${path.join(tempDir, 'output.txt')}`,
       `--include=${include}`,
       '--style=detailed',
-      '--quiet'  // ✅ Only keep --quiet
+      '--quiet'
     ];
     
-    // Add exclude patterns if provided
-    if (excludePatterns && Array.isArray(excludePatterns)) {
-      excludePatterns.forEach(pattern => {
-        cmd.push(`--exclude=${pattern}`);
-      });
-    } else {
-      // Default exclusions
-      cmd.push('--exclude=node_modules');
-      cmd.push('--exclude=dist');
-      cmd.push('--exclude=build');
-      cmd.push('--exclude=.git');
-      cmd.push('--exclude=*.log');
-      cmd.push('--exclude=*.lock');
-    }
+    // ✅ FIXED: Repomix v1.1.0 uses --ignore instead of --exclude
+    // We'll handle exclusions in a different way
     
     console.log(`🔧 Running command: ${cmd.join(' ')}`);
     
@@ -86,6 +74,22 @@ app.post('/analyze', async (req, res) => {
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
+    
+    // ✅ FIXED: Filter out excluded patterns AFTER getting output
+    if (excludePatterns && Array.isArray(excludePatterns)) {
+      content = filterExcludedContent(content, excludePatterns);
+    } else {
+      // Default exclusions
+      content = filterExcludedContent(content, [
+        'node_modules',
+        'dist',
+        'build',
+        '.git',
+        'coverage',
+        '.log',
+        '.lock'
+      ]);
+    }
     
     // Extract file count from repomix output
     const fileMatch = content.match(/Analyzed (\d+) files?/i);
@@ -141,6 +145,44 @@ app.post('/analyze', async (req, res) => {
   }
 });
 
+// Helper function to filter excluded content
+function filterExcludedContent(content, excludePatterns) {
+  console.log('🔍 Filtering excluded patterns:', excludePatterns);
+  
+  const lines = content.split('\n');
+  const filteredLines = [];
+  let skipCurrentFile = false;
+  let currentFile = '';
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Check if this is a file header (Repomix format)
+    const fileMatch = line.match(/File:\s*(.+)/i);
+    if (fileMatch) {
+      currentFile = fileMatch[1].trim();
+      skipCurrentFile = excludePatterns.some(pattern => 
+        currentFile.includes(pattern) || 
+        pattern.includes(currentFile.split('/').pop())
+      );
+      
+      if (!skipCurrentFile) {
+        filteredLines.push(line);
+      }
+    } else if (line.includes('────────────────')) {
+      // Separator line
+      if (!skipCurrentFile) {
+        filteredLines.push(line);
+      }
+    } else if (!skipCurrentFile) {
+      // Content line - only add if file is not excluded
+      filteredLines.push(line);
+    }
+  }
+  
+  return filteredLines.join('\n');
+}
+
 // Helper function to extract dependencies
 function extractDependencies(content) {
   const dependencies = [];
@@ -175,7 +217,7 @@ function extractDependencies(content) {
         });
       }
     } catch (e) {
-      // Silent fail for JSON parsing
+      console.warn('Could not parse package.json:', e.message);
     }
   }
   
@@ -226,7 +268,14 @@ function extractFileStructure(content) {
     const fileMatch = line.match(/File:\s*(.+)/i);
     if (fileMatch) {
       const fileName = fileMatch[1].trim();
-      if (fileName && !fileName.includes('node_modules') && !fileName.includes('.git/')) {
+      // Filter out excluded patterns
+      if (fileName && 
+          !fileName.includes('node_modules') && 
+          !fileName.includes('.git/') &&
+          !fileName.includes('/dist/') &&
+          !fileName.includes('/build/') &&
+          !fileName.endsWith('.log') &&
+          !fileName.endsWith('.lock')) {
         files.push(fileName);
       }
     }
