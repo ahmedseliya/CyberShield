@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { runCli } = require('repomix'); // ✅ Import the direct API
+const { pack } = require('repomix'); // ✅ Use the direct pack function
 const app = express();
 
 app.use(cors());
@@ -14,6 +14,10 @@ if (!fs.existsSync(GLOBAL_TEMP_DIR)) {
   fs.mkdirSync(GLOBAL_TEMP_DIR, { recursive: true });
 }
 
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'Repomix Bridge API' });
+});
+
 app.post('/analyze', async (req, res) => {
   let workDir = '';
   try {
@@ -23,36 +27,38 @@ app.post('/analyze', async (req, res) => {
     workDir = path.join(GLOBAL_TEMP_DIR, Date.now().toString());
     fs.mkdirSync(workDir, { recursive: true });
     
+    console.log(`🚀 Starting Library Analysis for: ${url}`);
+
+    // ✅ DIRECT API CALL (No more "Command failed" errors)
+    // This runs the logic directly inside Node.js
+    const result = await pack(workDir, {
+      remote: url,
+      output: {
+        filePath: path.join(workDir, 'output.txt'),
+        style: 'detailed',
+      },
+      include: [include],
+      quiet: true
+    });
+
     const outputPath = path.join(workDir, 'output.txt');
-
-    console.log(`🚀 Starting internal analysis for: ${url}`);
-
-    // ✅ Using the library API instead of child_process.exec
-    // We pass the arguments as an array just like the CLI
-    await runCli([
-      '--remote', url,
-      '--output', outputPath,
-      '--include', include,
-      '--style', 'detailed',
-      '--quiet'
-    ]);
-
+    
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Repomix failed to generate output. The repository might be private or too large.');
+      throw new Error('Repomix failed to generate output file.');
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
     const fileCount = (content.match(/File:/gi) || []).length;
     
-    // Extract basic dependencies for your OSV check
+    // Extract dependencies for your OSV analysis
     const dependencies = extractDeps(content);
     
-    // Context window protection
+    // Safety truncation for AI analysis
     if (content.length > maxSize) {
       content = content.substring(0, maxSize) + '\n\n... (content truncated)';
     }
     
-    // Cleanup
+    // Cleanup temporary files
     fs.rmSync(workDir, { recursive: true, force: true });
     
     res.json({
@@ -64,13 +70,13 @@ app.post('/analyze', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Internal Analysis Error:', error.message);
+    console.error('❌ Analysis Error:', error.message);
     if (workDir && fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true, force: true });
     
     res.status(500).json({
       success: false,
       error: error.message,
-      details: "Check if the repo is public. Large repos may hit Render's free RAM limits."
+      details: "Ensure the repo is public. Large repos may hit Render's RAM limits."
     });
   }
 });
@@ -90,5 +96,5 @@ function extractDeps(content) {
   return deps;
 }
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Render uses 10000 by default
 app.listen(PORT, () => console.log(`🚀 Bridge Online on port ${PORT}`));
