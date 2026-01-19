@@ -1,4 +1,3 @@
-// repomix-api/server.js - FIXED VERSION
 const express = require('express');
 const cors = require('cors');
 const { exec } = require('child_process');
@@ -40,7 +39,7 @@ app.post('/analyze', async (req, res) => {
     const tempDir = path.join(__dirname, 'temp', Date.now().toString());
     fs.mkdirSync(tempDir, { recursive: true });
     
-    // ✅ FIXED: Remove --format parameter, use --style instead
+    // ✅ FIXED: Remove --no-progress flag
     // Build repomix command
     const cmd = [
       'npx',
@@ -48,9 +47,8 @@ app.post('/analyze', async (req, res) => {
       `--remote=${url}`,
       `--output=${path.join(tempDir, 'output.txt')}`,
       `--include=${include}`,
-      '--style=detailed',  // ✅ CHANGED FROM --format=text
-      '--quiet',
-      '--no-progress'
+      '--style=detailed',
+      '--quiet'  // ✅ Only keep --quiet
     ];
     
     // Add exclude patterns if provided
