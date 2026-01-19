@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { pack } = require('repomix'); // ✅ Use the direct pack function
+const { pack } = require('repomix'); 
 const app = express();
 
 app.use(cors());
@@ -29,20 +29,24 @@ app.post('/analyze', async (req, res) => {
     
     console.log(`🚀 Starting Library Analysis for: ${url}`);
 
-    // ✅ DIRECT API CALL (No more "Command failed" errors)
-    // This runs the logic directly inside Node.js
-    const result = await pack(workDir, {
+    const outputPath = path.join(workDir, 'output.txt');
+
+    // ✅ FIXED: Pass [workDir] as an array, and match the library's config structure
+    await pack([workDir], {
       remote: url,
       output: {
-        filePath: path.join(workDir, 'output.txt'),
+        filePath: outputPath,
         style: 'detailed',
+        removeComments: false,
+        removeEmptyLines: false,
+        topFilesLength: 10,
+        showLineNumbers: false,
+        copyToClipboard: false,
       },
       include: [include],
       quiet: true
     });
 
-    const outputPath = path.join(workDir, 'output.txt');
-    
     if (!fs.existsSync(outputPath)) {
       throw new Error('Repomix failed to generate output file.');
     }
@@ -59,7 +63,11 @@ app.post('/analyze', async (req, res) => {
     }
     
     // Cleanup temporary files
-    fs.rmSync(workDir, { recursive: true, force: true });
+    try {
+        fs.rmSync(workDir, { recursive: true, force: true });
+    } catch (cleanupErr) {
+        console.warn('Cleanup warning:', cleanupErr.message);
+    }
     
     res.json({
       success: true,
@@ -71,12 +79,14 @@ app.post('/analyze', async (req, res) => {
     
   } catch (error) {
     console.error('❌ Analysis Error:', error.message);
-    if (workDir && fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true, force: true });
+    if (workDir && fs.existsSync(workDir)) {
+        try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
+    }
     
     res.status(500).json({
       success: false,
       error: error.message,
-      details: "Ensure the repo is public. Large repos may hit Render's RAM limits."
+      details: "Check if the repo is public. The analysis may have failed during the clone process."
     });
   }
 });
@@ -89,12 +99,12 @@ function extractDeps(content) {
       const pkg = JSON.parse(pkgMatch[1].trim());
       const all = { ...pkg.dependencies, ...pkg.devDependencies };
       Object.entries(all).forEach(([name, ver]) => {
-        deps.push({ name, version: ver.replace(/[^\d.]/g, ''), ecosystem: 'npm' });
+        deps.push({ name, version: ver.toString().replace(/[^\d.]/g, ''), ecosystem: 'npm' });
       });
     } catch (e) {}
   }
   return deps;
 }
 
-const PORT = process.env.PORT || 10000; // Render uses 10000 by default
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Bridge Online on port ${PORT}`));
