@@ -1,4 +1,4 @@
-// repomix-api/server.js
+// repomix-api/server.js - FIXED VERSION
 const express = require('express');
 const cors = require('cors');
 const { exec } = require('child_process');
@@ -12,9 +12,6 @@ const execPromise = util.promisify(exec);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Serve static files if needed
-app.use(express.static('public'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -43,14 +40,15 @@ app.post('/analyze', async (req, res) => {
     const tempDir = path.join(__dirname, 'temp', Date.now().toString());
     fs.mkdirSync(tempDir, { recursive: true });
     
+    // ✅ FIXED: Remove --format parameter, use --style instead
     // Build repomix command
     const cmd = [
       'npx',
       'repomix',
       `--remote=${url}`,
       `--output=${path.join(tempDir, 'output.txt')}`,
-      `--format=${format}`,
       `--include=${include}`,
+      '--style=detailed',  // ✅ CHANGED FROM --format=text
       '--quiet',
       '--no-progress'
     ];
@@ -278,7 +276,6 @@ app.use((req, res) => {
       'POST /analyze': 'Analyze a repository',
       parameters: {
         url: 'Repository URL (required)',
-        format: 'Output format (text/xml/json)',
         include: 'What to include (code/all)',
         excludePatterns: 'Array of patterns to exclude'
       }
