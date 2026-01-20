@@ -96,4 +96,4 @@ function extractDeps(content) {
 }
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 Bridge Online on ports ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Bridge Online on portssssss ${PORT}`));
