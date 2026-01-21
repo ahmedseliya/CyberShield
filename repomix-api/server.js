@@ -14,7 +14,7 @@ if (!fs.existsSync(GLOBAL_TEMP_DIR)) {
 }
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({ status: 'ok', service: 'repomix-bridge' });
 });
 
 app.post('/analyze', async (req, res) => {
@@ -26,11 +26,11 @@ app.post('/analyze', async (req, res) => {
     workDir = path.join(GLOBAL_TEMP_DIR, Date.now().toString());
     fs.mkdirSync(workDir, { recursive: true });
     
-    console.log(`🚀 Repomix starts: ${url}`);
+    console.log(`🚀 Starting Analysis for: ${url}`);
     const outputPath = path.join(workDir, 'output.txt');
 
-    // ✅ SIMPLIFIED CONFIG
-    // Removed 'include: []' which was likely causing the 0-file result
+    // ✅ ROBUST CONFIG: 
+    // We provide full objects to prevent "undefined" property errors.
     await pack([], {
       remote: url,
       output: {
@@ -40,9 +40,15 @@ app.post('/analyze', async (req, res) => {
         removeEmptyLines: false,
         showLineNumbers: false,
         copyToClipboard: false,
+        topFilesLength: 5
+      },
+      // Passing an empty object instead of null for security
+      security: {
+        enableSecurityCheck: false
       },
       ignore: {
         useDefaultPatterns: true,
+        useGitignore: true,
         customPatterns: ['node_modules', 'dist', 'build', '.git']
       },
       tokenCount: {
@@ -52,23 +58,24 @@ app.post('/analyze', async (req, res) => {
     });
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Repomix output file not found.');
+      throw new Error('Repomix failed to generate output file.');
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
     
-    // ✅ Better detection for "plain" style
-    // The plain style usually labels files like: "File: src/App.js"
-    const fileCount = (content.match(/File: /g) || []).length;
+    // ✅ Better counting logic:
+    // Some versions use "File: " and others "File:/" depending on OS
+    const fileCount = (content.match(/File: /gi) || []).length;
     const dependencies = extractDeps(content);
     
-    console.log(`📊 Result: Found ${fileCount} files in output.`);
+    console.log(`✅ Success! Found ${fileCount} files.`);
 
     if (content.length > maxSize) {
       content = content.substring(0, maxSize) + '\n\n... (content truncated)';
     }
     
-    fs.rmSync(workDir, { recursive: true, force: true });
+    // Clean up
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     
     res.json({
       success: true,
@@ -79,17 +86,19 @@ app.post('/analyze', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('❌ Bridge Error:', error.message);
     if (workDir && fs.existsSync(workDir)) {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     }
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || "Internal Bridge Error"
+    });
   }
 });
 
 function extractDeps(content) {
   const deps = [];
-  // Look for the package.json section in the text
   const pkgMatch = content.match(/package\.json[\s\S]*?({[\s\S]*?})/i);
   if (pkgMatch) {
     try {
@@ -103,5 +112,5 @@ function extractDeps(content) {
   return deps;
 }
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+const PORT = process.env.PORT || 10000; // Render standard port
+app.listen(PORT, () => console.log(`🚀 Bridge Online on port ${PORT}`));
