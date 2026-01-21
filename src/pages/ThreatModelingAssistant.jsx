@@ -111,15 +111,21 @@ const getRepomixDigest = async (gitUrl) => {
     
     console.log('✅ Repomix Bridge response received');
     console.log('📊 Files analyzed:', result.fileCount);
-    console.log('📦 Dependencies found:', result.dependencies.length);
-    console.log('📄 Code size:', result.rawText.length, 'characters');
+    console.log('📦 Dependencies found:', result.dependencies ? result.dependencies.length : 0);
+    console.log('📄 Code size:', result.rawText ? result.rawText.length : 0, 'characters');
+    
+    // Extract files from raw text if fileStructure is not provided
+    const fileStructure = extractFilesFromRepomix(result.rawText || '');
+    
+    // Generate a summary if not provided
+    const summary = generateSummaryFromCode(result.rawText || '', result.fileCount || 0);
     
     return {
-      rawText: result.rawText,
-      dependencies: result.dependencies,
-      fileStructure: result.fileStructure || [],
-      fileCount: result.fileCount,
-      summary: result.summary
+      rawText: result.rawText || '',
+      dependencies: result.dependencies || [],
+      fileStructure: fileStructure,
+      fileCount: result.fileCount || 0,
+      summary: summary
     };
     
   } catch (error) {
@@ -135,13 +141,15 @@ const getRepomixDigest = async (gitUrl) => {
         const rawText = await fallbackResponse.text();
         const dependencies = parseDependenciesFromCode(rawText);
         const fileCount = rawText.match(/Analyzed (\d+) files?/i)?.[1] || 0;
+        const fileStructure = extractFilesFromRepomix(rawText);
+        const summary = generateSummaryFromCode(rawText, fileCount);
         
         return {
           rawText,
           dependencies,
-          fileStructure: [],
+          fileStructure,
           fileCount: parseInt(fileCount),
-          summary: `Fallback analysis: ${gitUrl}`
+          summary
         };
       }
     } catch (fallbackError) {
@@ -156,6 +164,25 @@ const getRepomixDigest = async (gitUrl) => {
       summary: 'Repository analysis failed - using limited data'
     };
   }
+};
+
+const extractFilesFromRepomix = (rawText) => {
+  if (!rawText) return [];
+  
+  const files = [];
+  const lines = rawText.split('\n');
+  
+  for (const line of lines) {
+    const fileMatch = line.match(/File:\s*(.+)/i);
+    if (fileMatch) {
+      const fileName = fileMatch[1].trim();
+      if (fileName && !fileName.includes('node_modules') && !fileName.includes('.git/')) {
+        files.push(fileName);
+      }
+    }
+  }
+  
+  return files;
 };
 
 const filterSecurityCriticalFiles = (rawText) => {
@@ -372,23 +399,6 @@ const parseDependenciesFromCode = (rawText) => {
   return uniqueDeps;
 };
 
-const extractFilesFromRepomix = (rawText) => {
-  const files = [];
-  const lines = rawText.split('\n');
-  
-  for (const line of lines) {
-    const fileMatch = line.match(/File:\s*(.+)/i);
-    if (fileMatch) {
-      const fileName = fileMatch[1].trim();
-      if (fileName && !fileName.includes('node_modules') && !fileName.includes('.git/')) {
-        files.push(fileName);
-      }
-    }
-  }
-  
-  return files;
-};
-
 const generateSummaryFromCode = (rawText, fileCount) => {
   // Analyze code to generate intelligent summary
   const hasReact = rawText.includes('import React') || rawText.includes('from "react"');
@@ -418,8 +428,6 @@ const generateSummaryFromCode = (rawText, fileCount) => {
   
   return `${stack} application with ${fileCount} files analyzed via Repomix`;
 };
-
-// The rest of your functions remain EXACTLY THE SAME from here...
 
 const checkOSVVulnerabilities = async (dependencies) => {
   if (dependencies.length === 0) {
@@ -545,12 +553,16 @@ const createEnhancedAIPrompt = (systemInfo, repoData, osvResults) => {
     codeAnalysisContent = repoData.rawText.substring(0, 150000);
   }
   
+  // FIXED: Handle undefined repoData.summary
+  const repoSummary = repoData.summary || `Repository analyzed: ${repoData.fileCount} files, ${repoData.dependencies.length} dependencies`;
+  const summaryFirstLine = repoSummary.split ? repoSummary.split('\n')[0] || repoSummary : repoSummary;
+  
   const repomixSection = repoData.dependencies.length > 0 || repoData.fileCount > 0
     ? `CODE ANALYSIS RESULTS (via Repomix - FULL CODE ANALYSIS):
-- Repository Summary: ${repoData.summary}
-- Files Analyzed: ${repoData.fileCount} files (showing first 20): ${repoData.fileStructure.slice(0, 20).join(', ')}${repoData.fileStructure.length > 20 ? `... and ${repoData.fileStructure.length - 20} more` : ''}
-- Dependencies Found: ${repoData.dependencies.map(d => `${d.name}@${d.version}`).slice(0, 15).join(', ')}${repoData.dependencies.length > 15 ? `... and ${repoData.dependencies.length - 15} more` : ''}
-- Code Analysis: Full repository code analyzed (${repoData.rawText.length} characters)`
+- Repository Summary: ${repoSummary}
+- Files Analyzed: ${repoData.fileCount} files${repoData.fileStructure && repoData.fileStructure.length > 0 ? ` (first 20): ${repoData.fileStructure.slice(0, 20).join(', ')}${repoData.fileStructure.length > 20 ? `... and ${repoData.fileStructure.length - 20} more` : ''}` : ''}
+- Dependencies Found: ${repoData.dependencies.length > 0 ? repoData.dependencies.map(d => `${d.name}@${d.version}`).slice(0, 15).join(', ') + (repoData.dependencies.length > 15 ? `... and ${repoData.dependencies.length - 15} more` : '') : 'None detected'}
+- Code Analysis: Full repository code analyzed (${repoData.rawText ? repoData.rawText.length : 0} characters)`
     : `CODE ANALYSIS RESULTS: Repository was analyzed but no significant code files were found.`;
 
   const osvSection = osvResults.vulnerabilities.length > 0
@@ -561,7 +573,7 @@ ${osvResults.vulnerabilities.slice(0, 10).map(v => `- ${v.title} in ${v.componen
   return `
 You are a senior cybersecurity expert analyzing a repository. Return ONLY valid JSON.
 
-REPOSITORY: ${repoData.summary.split('\n')[0] || 'Unknown repository'}
+REPOSITORY: ${summaryFirstLine}
 
 USER-PROVIDED APPLICATION INFO:
 - Name: ${systemInfo.appName}
@@ -575,7 +587,7 @@ ${repomixSection}
 
 ${osvSection}
 
-FULL CODE ANALYSIS CONTENT (first 150K chars of ${repoData.rawText.length} total):
+FULL CODE ANALYSIS CONTENT (first 150K chars of ${repoData.rawText ? repoData.rawText.length : 0} total):
 ${codeAnalysisContent}
 
 ANALYSIS INSTRUCTIONS:
@@ -1254,7 +1266,7 @@ const getStaticChatResponse = (message) => {
   return "I understand your security question. For comprehensive analysis, please check the threat report above. For immediate concerns: always validate input, use HTTPS, and implement proper authentication.";
 };
 
-// COMPLETE REACT COMPONENT (EXACTLY THE SAME AS BEFORE)
+// COMPLETE REACT COMPONENT
 const ThreatModelingAssistant = () => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
