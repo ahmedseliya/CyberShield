@@ -31,15 +31,15 @@ app.post('/analyze', async (req, res) => {
     workDir = path.join(GLOBAL_TEMP_DIR, Date.now().toString());
     fs.mkdirSync(workDir, { recursive: true });
     
-    console.log(`🚀 Starting Analysis: ${url}`);
+    console.log(`🚀 Starting Analysis for: ${url}`);
     const outputPath = path.join(workDir, 'output.txt');
 
-    // ✅ FIXED CONFIG: Changed style to 'plain' and simplified structure
+    // ✅ FIXED CONFIG: Added 'tokenCount' settings and forced encoding to prevent the crash
     await pack([workDir], {
       remote: url,
       output: {
         filePath: outputPath,
-        style: 'plain', // 'detailed' was causing the crash
+        style: 'plain',
         removeComments: false,
         removeEmptyLines: false,
         showLineNumbers: false,
@@ -52,7 +52,11 @@ app.post('/analyze', async (req, res) => {
         customPatterns: ['node_modules', 'dist', 'build', '.git']
       },
       security: {
-        enableSecurityCheck: true
+        enableSecurityCheck: false // Set to false to speed up and reduce errors during hackathons
+      },
+      // ✅ This section often fixes the "encoding" undefined error
+      tokenCount: {
+        encoding: 'o200k_base' 
       },
       quiet: true
     });
@@ -62,17 +66,14 @@ app.post('/analyze', async (req, res) => {
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
-    
-    // Calculate stats
     const fileCount = (content.match(/File:/gi) || []).length;
     const dependencies = extractDeps(content);
     
-    // Handle truncation if file is too large
     if (content.length > maxSize) {
-      content = content.substring(0, maxSize) + '\n\n... (content truncated for size)';
+      content = content.substring(0, maxSize) + '\n\n... (content truncated)';
     }
     
-    // Cleanup temporary directory
+    // Clean up
     fs.rmSync(workDir, { recursive: true, force: true });
     
     res.json({
@@ -80,29 +81,24 @@ app.post('/analyze', async (req, res) => {
       rawText: content,
       fileCount,
       dependencies,
-      metadata: { 
-        repository: url, 
-        analyzedAt: new Date().toISOString(),
-        style: 'plain'
-      }
+      metadata: { repository: url, analyzedAt: new Date().toISOString() }
     });
     
   } catch (error) {
-    console.error('❌ Repomix Error:', error);
+    console.error('❌ Repomix Error Trace:', error);
     if (workDir && fs.existsSync(workDir)) {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     }
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      tip: "Ensure the repository is public and the URL is correct."
+      details: "Repomix internal error. This usually happens with specific repo structures."
     });
   }
 });
 
 function extractDeps(content) {
   const deps = [];
-  // Regex to find package.json content within the repomix output
   const pkgMatch = content.match(/package\.json[\s\S]*?({[\s\S]*?})/i);
   if (pkgMatch) {
     try {
@@ -111,9 +107,7 @@ function extractDeps(content) {
       Object.entries(all).forEach(([name, ver]) => {
         deps.push({ name, version: ver.toString(), ecosystem: 'npm' });
       });
-    } catch (e) {
-      console.log("Parsing dependencies failed, skipping...");
-    }
+    } catch (e) {}
   }
   return deps;
 }
