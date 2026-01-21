@@ -88,15 +88,24 @@ app.post('/analyze', async (req, res) => {
 
 function extractDeps(content) {
   const deps = [];
-  const pkgMatch = content.match(/package\.json[\s\S]*?({[\s\S]*?})/i);
-  if (pkgMatch) {
+  // This looks for the package.json header and then grabs the JSON block following it
+  const pkgSection = content.match(/package\.json[\s\S]*?({[\s\S]*?"dependencies"[\s\S]*?})/i);
+  
+  if (pkgSection) {
     try {
-      const pkg = JSON.parse(pkgMatch[1].trim());
+      // Clean up the match to ensure it's valid JSON
+      const pkg = JSON.parse(pkgSection[1].trim());
       const all = { ...pkg.dependencies, ...pkg.devDependencies };
+      
       Object.entries(all).forEach(([name, ver]) => {
-        deps.push({ name, version: ver.toString(), ecosystem: 'npm' });
+        // Clean version strings like "^1.2.3" to "1.2.3"
+        const cleanVer = ver.toString().replace(/[\^~]/g, '');
+        deps.push({ name, version: cleanVer, ecosystem: 'npm' });
       });
-    } catch (e) {}
+      console.log(`📦 Extracted ${deps.length} dependencies for OSV check.`);
+    } catch (e) {
+      console.log("⚠️ Could not parse package.json content for dependencies.");
+    }
   }
   return deps;
 }
