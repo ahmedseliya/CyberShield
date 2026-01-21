@@ -2,8 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process'); // To manually clone
-const { pack } = require('repomix'); 
+const { execSync } = require('child_process');
 const app = express();
 
 app.use(cors());
@@ -24,58 +23,40 @@ app.post('/analyze', async (req, res) => {
     const { url, maxSize = 500000 } = req.body;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
-    // 1. Create a clean work directory
+    // 1. Setup paths
     const timestamp = Date.now().toString();
     workDir = path.join(GLOBAL_TEMP_DIR, timestamp);
-    const repoDir = path.join(workDir, 'repo'); // Actual folder for files
+    const repoDir = path.join(workDir, 'repo');
     fs.mkdirSync(repoDir, { recursive: true });
     
-    console.log(`🚀 Manual Clone Starting: ${url}`);
+    console.log(`🚀 STARTING CLI ANALYSIS: ${url}`);
+
+    // 2. Clone the repo manually
+    console.log(`📦 Cloning...`);
+    execSync(`git clone --depth 1 ${url} .`, { cwd: repoDir, stdio: 'inherit' });
+
+    // 3. Run Repomix via CLI (npx)
+    // This avoids all the "undefined property" library bugs!
+    console.log(`🛠️ Running Repomix CLI...`);
+    const outputPath = path.join(workDir, 'repomix-output.txt');
     
-    // 2. Use Git to clone the repo manually into repoDir
-    // --depth 1 makes it fast (only gets latest version)
-    try {
-      execSync(`git clone --depth 1 ${url} .`, { cwd: repoDir, stdio: 'inherit' });
-    } catch (cloneError) {
-      throw new Error(`Git clone failed: ${cloneError.message}`);
-    }
-
-    const outputPath = path.join(workDir, 'output.txt');
-
-    // 3. Tell Repomix to analyze the LOCAL repoDir
-    // Note: We pass [repoDir] as the source now!
-    await pack([repoDir], {
-      output: {
-        filePath: outputPath,
-        style: 'plain',
-        removeComments: false,
-        removeEmptyLines: false,
-        showLineNumbers: false,
-        copyToClipboard: false,
-        topFilesLength: 10
-      },
-      include: ['**/*'], 
-      ignore: {
-        useDefaultPatterns: true,
-        useGitignore: true,
-        customPatterns: ['node_modules', 'dist', 'build', '.git']
-      },
-      security: { enableSecurityCheck: false },
-      tokenCount: { encoding: 'o200k_base' },
-      quiet: false 
+    // Commands: --style plain, --output to specific file, --no-security-check to save time
+    execSync(`npx repomix . --style plain --output ${outputPath} --no-security-check`, { 
+      cwd: repoDir, 
+      stdio: 'inherit' 
     });
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Repomix failed to generate output file.');
+      throw new Error('Repomix CLI failed to generate output.');
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
     
-    // 4. Counting logic
+    // 4. Extract Data
     const fileCount = (content.match(/File: /g) || []).length;
     const dependencies = extractDeps(content);
     
-    console.log(`✅ Success: Found ${fileCount} files in manual clone.`);
+    console.log(`✅ DONE! Found ${fileCount} files.`);
 
     if (content.length > maxSize) {
       content = content.substring(0, maxSize) + '\n\n... (content truncated)';
@@ -93,11 +74,15 @@ app.post('/analyze', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ CRITICAL ERROR:', error.message);
     if (workDir && fs.existsSync(workDir)) {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     }
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      details: "CLI execution failed. Check Render logs for git/npx errors."
+    });
   }
 });
 
