@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process'); // To manually clone
 const { pack } = require('repomix'); 
 const app = express();
 
@@ -23,61 +24,64 @@ app.post('/analyze', async (req, res) => {
     const { url, maxSize = 500000 } = req.body;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
-    // 1. Create a unique working directory
+    // 1. Create a clean work directory
     const timestamp = Date.now().toString();
     workDir = path.join(GLOBAL_TEMP_DIR, timestamp);
-    fs.mkdirSync(workDir, { recursive: true });
+    const repoDir = path.join(workDir, 'repo'); // Actual folder for files
+    fs.mkdirSync(repoDir, { recursive: true });
     
-    console.log(`🚀 Starting Full-Config Analysis: ${url}`);
+    console.log(`🚀 Manual Clone Starting: ${url}`);
+    
+    // 2. Use Git to clone the repo manually into repoDir
+    // --depth 1 makes it fast (only gets latest version)
+    try {
+      execSync(`git clone --depth 1 ${url} .`, { cwd: repoDir, stdio: 'inherit' });
+    } catch (cloneError) {
+      throw new Error(`Git clone failed: ${cloneError.message}`);
+    }
+
     const outputPath = path.join(workDir, 'output.txt');
 
-    // 2. Run pack with a VERY explicit config to prevent "length" or "undefined" errors
-    await pack([], {
-      remote: url,
+    // 3. Tell Repomix to analyze the LOCAL repoDir
+    // Note: We pass [repoDir] as the source now!
+    await pack([repoDir], {
       output: {
         filePath: outputPath,
         style: 'plain',
-        headerText: `Analysis for ${url}`,
         removeComments: false,
         removeEmptyLines: false,
         showLineNumbers: false,
         copyToClipboard: false,
-        topFilesLength: 5 // Explicitly set this to prevent .length errors
+        topFilesLength: 10
       },
-      include: ['**/*'], // Explicitly tell it to include everything
+      include: ['**/*'], 
       ignore: {
         useDefaultPatterns: true,
         useGitignore: true,
-        customPatterns: ['node_modules', 'dist', 'build', '.git', '.github']
+        customPatterns: ['node_modules', 'dist', 'build', '.git']
       },
-      security: {
-        enableSecurityCheck: false
-      },
-      tokenCount: {
-        encoding: 'o200k_base' 
-      },
+      security: { enableSecurityCheck: false },
+      tokenCount: { encoding: 'o200k_base' },
       quiet: false 
     });
 
-    // 3. Check if output exists
     if (!fs.existsSync(outputPath)) {
       throw new Error('Repomix failed to generate output file.');
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
     
-    // 4. Reliable File Counting
+    // 4. Counting logic
     const fileCount = (content.match(/File: /g) || []).length;
     const dependencies = extractDeps(content);
     
-    console.log(`✅ Success: Found ${fileCount} files.`);
+    console.log(`✅ Success: Found ${fileCount} files in manual clone.`);
 
-    // 5. Truncate if too large
     if (content.length > maxSize) {
       content = content.substring(0, maxSize) + '\n\n... (content truncated)';
     }
     
-    // 6. Cleanup
+    // 5. Cleanup
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     
     res.json({
@@ -89,15 +93,11 @@ app.post('/analyze', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Bridge Error Trace:', error);
+    console.error('❌ Error:', error.message);
     if (workDir && fs.existsSync(workDir)) {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     }
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || "Unknown internal error",
-      tip: "Verify the repo is public and contains source files."
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
