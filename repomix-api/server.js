@@ -13,6 +13,15 @@ if (!fs.existsSync(GLOBAL_TEMP_DIR)) {
   fs.mkdirSync(GLOBAL_TEMP_DIR, { recursive: true });
 }
 
+// ✅ Health Check Route for Render.com
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    service: 'cybershield-repomix-api',
+    timestamp: new Date().toISOString() 
+  });
+});
+
 app.post('/analyze', async (req, res) => {
   let workDir = '';
   try {
@@ -96,4 +105,4 @@ function extractDeps(content) {
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Bridge Online on portsssssss ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Bridge Online on port ${PORT}`));
