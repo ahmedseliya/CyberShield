@@ -13,13 +13,8 @@ if (!fs.existsSync(GLOBAL_TEMP_DIR)) {
   fs.mkdirSync(GLOBAL_TEMP_DIR, { recursive: true });
 }
 
-// ✅ Health Check Route
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    service: 'cybershield-repomix-api',
-    timestamp: new Date().toISOString() 
-  });
+  res.status(200).json({ status: 'ok' });
 });
 
 app.post('/analyze', async (req, res) => {
@@ -31,10 +26,11 @@ app.post('/analyze', async (req, res) => {
     workDir = path.join(GLOBAL_TEMP_DIR, Date.now().toString());
     fs.mkdirSync(workDir, { recursive: true });
     
-    console.log(`🚀 Starting Analysis for: ${url}`);
+    console.log(`🚀 Repomix starts: ${url}`);
     const outputPath = path.join(workDir, 'output.txt');
 
-    // ✅ FIXED: Changed [workDir] to [] so it pulls from the remote URL properly
+    // ✅ SIMPLIFIED CONFIG
+    // Removed 'include: []' which was likely causing the 0-file result
     await pack([], {
       remote: url,
       output: {
@@ -45,36 +41,33 @@ app.post('/analyze', async (req, res) => {
         showLineNumbers: false,
         copyToClipboard: false,
       },
-      include: [], 
       ignore: {
         useDefaultPatterns: true,
-        useGitignore: true,
         customPatterns: ['node_modules', 'dist', 'build', '.git']
-      },
-      security: {
-        enableSecurityCheck: false 
       },
       tokenCount: {
         encoding: 'o200k_base' 
       },
-      quiet: false // Changed to false so you can see the cloning progress in Render logs
+      quiet: false 
     });
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Repomix failed to generate output file.');
+      throw new Error('Repomix output file not found.');
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
     
-    // ✅ Improved Regex to count files in 'plain' style
-    const fileCount = (content.match(/^File: /gm) || []).length;
+    // ✅ Better detection for "plain" style
+    // The plain style usually labels files like: "File: src/App.js"
+    const fileCount = (content.match(/File: /g) || []).length;
     const dependencies = extractDeps(content);
     
+    console.log(`📊 Result: Found ${fileCount} files in output.`);
+
     if (content.length > maxSize) {
       content = content.substring(0, maxSize) + '\n\n... (content truncated)';
     }
     
-    // Clean up
     fs.rmSync(workDir, { recursive: true, force: true });
     
     res.json({
@@ -86,20 +79,17 @@ app.post('/analyze', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Repomix Error Trace:', error);
+    console.error('❌ Error:', error);
     if (workDir && fs.existsSync(workDir)) {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     }
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      details: "Repomix internal error. This usually happens with specific repo structures."
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 function extractDeps(content) {
   const deps = [];
+  // Look for the package.json section in the text
   const pkgMatch = content.match(/package\.json[\s\S]*?({[\s\S]*?})/i);
   if (pkgMatch) {
     try {
@@ -114,4 +104,4 @@ function extractDeps(content) {
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Bridge Online on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
