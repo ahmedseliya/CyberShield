@@ -13,7 +13,7 @@ if (!fs.existsSync(GLOBAL_TEMP_DIR)) {
   fs.mkdirSync(GLOBAL_TEMP_DIR, { recursive: true });
 }
 
-// ✅ Health Check Route for Render.com
+// ✅ Health Check Route
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'ok', 
@@ -31,26 +31,25 @@ app.post('/analyze', async (req, res) => {
     workDir = path.join(GLOBAL_TEMP_DIR, Date.now().toString());
     fs.mkdirSync(workDir, { recursive: true });
     
-    console.log(`🚀 Starting Full-Config Analysis: ${url}`);
+    console.log(`🚀 Starting Analysis: ${url}`);
     const outputPath = path.join(workDir, 'output.txt');
 
-    // ✅ Providing the FULL config object to prevent "undefined" property crashes
+    // ✅ FIXED CONFIG: Changed style to 'plain' and simplified structure
     await pack([workDir], {
       remote: url,
       output: {
         filePath: outputPath,
-        style: 'detailed',
+        style: 'plain', // 'detailed' was causing the crash
         removeComments: false,
         removeEmptyLines: false,
         showLineNumbers: false,
-        topFilesLength: 10,
         copyToClipboard: false,
       },
       include: [], 
       ignore: {
-        useDefaultPatterns: true, // This fixes your specific error
+        useDefaultPatterns: true,
         useGitignore: true,
-        customPatterns: ['node_modules', 'dist', '.git']
+        customPatterns: ['node_modules', 'dist', 'build', '.git']
       },
       security: {
         enableSecurityCheck: true
@@ -63,13 +62,17 @@ app.post('/analyze', async (req, res) => {
     }
     
     let content = fs.readFileSync(outputPath, 'utf-8');
+    
+    // Calculate stats
     const fileCount = (content.match(/File:/gi) || []).length;
     const dependencies = extractDeps(content);
     
+    // Handle truncation if file is too large
     if (content.length > maxSize) {
-      content = content.substring(0, maxSize) + '\n\n... (content truncated)';
+      content = content.substring(0, maxSize) + '\n\n... (content truncated for size)';
     }
     
+    // Cleanup temporary directory
     fs.rmSync(workDir, { recursive: true, force: true });
     
     res.json({
@@ -77,21 +80,30 @@ app.post('/analyze', async (req, res) => {
       rawText: content,
       fileCount,
       dependencies,
-      metadata: { repository: url, analyzedAt: new Date().toISOString() }
+      metadata: { 
+        repository: url, 
+        analyzedAt: new Date().toISOString(),
+        style: 'plain'
+      }
     });
     
   } catch (error) {
-    console.error('❌ Final Error Trace:', error);
+    console.error('❌ Repomix Error:', error);
     if (workDir && fs.existsSync(workDir)) {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     }
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      tip: "Ensure the repository is public and the URL is correct."
+    });
   }
 });
 
 function extractDeps(content) {
   const deps = [];
-  const pkgMatch = content.match(/package\.json[\s\S]*?```json\s*([\s\S]*?)```/i);
+  // Regex to find package.json content within the repomix output
+  const pkgMatch = content.match(/package\.json[\s\S]*?({[\s\S]*?})/i);
   if (pkgMatch) {
     try {
       const pkg = JSON.parse(pkgMatch[1].trim());
@@ -99,7 +111,9 @@ function extractDeps(content) {
       Object.entries(all).forEach(([name, ver]) => {
         deps.push({ name, version: ver.toString(), ecosystem: 'npm' });
       });
-    } catch (e) {}
+    } catch (e) {
+      console.log("Parsing dependencies failed, skipping...");
+    }
   }
   return deps;
 }
