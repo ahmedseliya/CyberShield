@@ -10980,3 +10980,19 @@ box-shadow: 0 2px 8px rgba(0, 210, 255, 0.3);
     max-width: 800px !important;
 }
 
+/* Only position the feature cards in a 2x2 grid - no colors, no hovers, no borders */
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Responsive for mobile */
+@media (max-width: 768px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -30,17 +30,11 @@ function Home() {
             <p>Learn the top web vulnerabilities with real-world attack & defense examples.</p>
           </Link>
 
-          <Link to="/mitigation" className="feature-card">
-            <FaShieldAlt className="icon"/>
-            <h3>Mitigation Guides</h3>
-            <p>Step-by-step techniques to secure apps and patch vulnerabilities.</p>
-          </Link>
-
-          <Link to="/concepts" className="feature-card">
-            <FaBrain className="icon"/>
-            <h3>Cyber Concepts</h3>
-            <p>Understand core concepts like malware, encryption, firewalls, and more.</p>
-          </Link>
+          <Link to="/alerts" className="feature-card">
+              <FaBell className="icon"/>
+              <h3>Cyber Alerts</h3>
+              <p>Stay informed with real-time updates about active threats and breaches.</p>
+            </Link>
 
           <Link to="/progress" className="feature-card">
             <FaQuestionCircle className="icon"/>
@@ -48,34 +42,14 @@ function Home() {
             <p>Test and reinforce your knowledge with interactive quizzes.</p>
           </Link>
 
-          <Link to="/social-engineering" className="feature-card">
-            <FaUserSecret className="icon"/>
-            <h3>Social Engineering</h3>
-            <p>Explore the psychology of cybercrime and learn how to defend yourself.</p>
-          </Link>
-
           <Link to="/glossary" className="feature-card">
             <FaBook className="icon"/>
             <h3>Glossary</h3>
             <p>Quick reference to cybersecurity terms, jargon, and acronyms.</p>
           </Link>
-
-          {/* Centered Last Row */}
-          <div className="centered-card-row">
-            <Link to="/simulations" className="feature-card">
-              <FaLaptopCode className="icon"/>
-              <h3>Simulations</h3>
-              <p>Hands‑on simulations for OWASP and social engineering scenarios.</p>
-            </Link>
-
-            <Link to="/alerts" className="feature-card">
-              <FaBell className="icon"/>
-              <h3>Cyber Alerts</h3>
-              <p>Stay informed with real-time updates about active threats and breaches.</p>
-            </Link>
-          </div>
         </div>
       </section>
+      
       {/* Why CyberShield Section */}
 <section className="why-cyber">
   <h2>Why CyberShield?</h2>

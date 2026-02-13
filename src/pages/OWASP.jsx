@@ -8,7 +8,6 @@ import {
   updateDoc 
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import OWASPVulnerabilityFeed from './OWASPVulnerabilityFeed';
 import ThreatModelingAssistant from './ThreatModelingAssistant';
 import OWASPAttackSimulator from './OWASPAttackSimulator';
 import SecurityHeaderAnalyzer from './SecurityHeaderAnalyzer';
@@ -813,7 +812,6 @@ function OWASP() {
           against these vulnerabilities. Remember: security is an ongoing process, not a one-time fix.
         </p>
       </div>
-       <OWASPVulnerabilityFeed />
        <ThreatModelingAssistant />
        <SecurityHeaderAnalyzer />
        <OWASPAttackSimulator />

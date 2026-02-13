@@ -40,11 +40,13 @@ app.post('/analyze', async (req, res) => {
     console.log(`🛠️ Running Repomix CLI...`);
     const outputPath = path.join(workDir, 'repomix-output.txt');
     
-    // Commands: --style plain, --output to specific file, --no-security-check to save time
-    execSync(`npx repomix . --style plain --output ${outputPath} --no-security-check`, { 
-      cwd: repoDir, 
-      stdio: 'inherit' 
-    });
+    // Points to the local version you already have installed
+const repomixBin = path.join(__dirname, 'node_modules', '.bin', 'repomix');
+
+execSync(`${repomixBin} . --style plain --output ${outputPath} --no-security-check`, { 
+  cwd: repoDir, 
+  stdio: 'inherit' 
+});
 
     if (!fs.existsSync(outputPath)) {
       throw new Error('Repomix CLI failed to generate output.');

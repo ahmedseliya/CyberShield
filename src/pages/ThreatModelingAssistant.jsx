@@ -647,81 +647,133 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
   try {
     console.log('🔍 Parsing enhanced AI response...');
     
-    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
+    // Clean the AI response before parsing
+    let cleanedText = aiText
+      .replace(/```json\s*/g, '') // Remove ```json
+      .replace(/```\s*$/g, '')     // Remove trailing ```
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+      .replace(/\\(?!["\\/bfnrt])/g, '\\\\') // Fix bad escapes
+      .trim();
+    
+    // Find JSON object boundaries
+    const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON object found in response');
+    }
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.warn('Initial parse failed, attempting to fix...', parseError.message);
       
-      console.log('✅ Successfully parsed AI response');
+      // More aggressive cleaning
+      const fixedJson = jsonMatch[0]
+        .replace(/\n/g, '\\n')     // Escape newlines in strings
+        .replace(/\r/g, '\\r')      // Escape carriage returns
+        .replace(/\t/g, '\\t')      // Escape tabs
+        .replace(/\\'/g, "'")       // Fix single quotes
+        .replace(/\\(?![\\"\/bfnrt])/g, '\\\\'); // Fix remaining bad escapes
       
-      const allThreats = [];
-      
-      osvResults.vulnerabilities.forEach((vuln, index) => {
+      parsed = JSON.parse(fixedJson);
+    }
+    
+    console.log('✅ Successfully parsed AI response');
+    
+    const allThreats = [];
+    
+    // Add OSV vulnerabilities
+    osvResults.vulnerabilities.forEach((vuln, index) => {
+      allThreats.push({
+        ...vuln,
+        id: index + 1,
+        confirmed: true,
+        source: 'OSV.dev API (Confirmed)'
+      });
+    });
+    
+    // Add AI-predicted threats
+    if (parsed.threats && Array.isArray(parsed.threats)) {
+      parsed.threats.forEach((threat, index) => {
         allThreats.push({
-          ...vuln,
-          id: index + 1,
-          confirmed: true,
-          source: 'OSV.dev API (Confirmed)'
+          ...threat,
+          id: index + osvResults.vulnerabilities.length + 1,
+          confirmed: threat.confirmed || false,
+          source: threat.source || 'AI Prediction (Code Analysis)'
         });
       });
-      
-      if (parsed.threats && Array.isArray(parsed.threats)) {
-        parsed.threats.forEach((threat, index) => {
-          allThreats.push({
-            ...threat,
-            id: index + osvResults.vulnerabilities.length + 1,
-            confirmed: threat.confirmed || false,
-            source: threat.source || 'AI Prediction (Code Analysis)'
-          });
-        });
-      }
-      
-      const validatedThreats = allThreats.map((threat, index) => ({
-        id: threat.id || index + 1,
-        title: threat.title || 'Security Vulnerability',
-        severity: threat.severity || 'medium',
-        category: threat.category || 'A03: Injection',
-        riskScore: threat.riskScore || 7.0,
-        stride: threat.stride || 'Tampering',
-        cwe: threat.cwe || 'CWE-000',
-        component: threat.component || `${systemInfo.backend[0] || 'Unknown'} Component`,
-        description: threat.description || 'Security vulnerability identified',
-        attackVector: threat.attackVector || 'Attack vector not specified',
-        impact: threat.impact || { confidentiality: 'MEDIUM', integrity: 'MEDIUM', availability: 'LOW' },
-        likelihood: threat.likelihood || 'MEDIUM',
-        affectedAssets: threat.affectedAssets || ['Application Data'],
-        mitigation: threat.mitigation || ['Implement security controls'],
-        codeExample: threat.codeExample || {
-          vulnerable: '// Vulnerable code',
-          secure: '// Secure code'
-        },
-        testing: threat.testing || 'Security testing required',
-        references: threat.references || ['https://owasp.org'],
-        confirmed: threat.confirmed || false,
-        source: threat.source || 'Analysis'
-      }));
-      
-      console.log(`📊 Total threats after validation: ${validatedThreats.length}`);
-      
-      return {
-        threats: validatedThreats,
-        insight: (parsed.insight || 'Enhanced security analysis completed')
-          .replace(/\*\*/g, '')
-          .replace(/\*/g, ''),
-        riskScore: parsed.riskScore || calculateRiskScore(validatedThreats),
-        realityCheck: parsed.realityCheck || '',
-        analysisSummary: parsed.analysisSummary || {
-          confirmedVulns: osvResults.vulnerabilities.length,
-          predictedVulns: validatedThreats.length - osvResults.vulnerabilities.length,
-          techRealityMatch: !parsed.realityCheck || !parsed.realityCheck.includes('mismatch'),
-          keyFindings: []
-        }
-      };
     }
-    throw new Error('Invalid JSON format from AI');
+    
+    // Validate and normalize all threats
+    const validatedThreats = allThreats.map((threat, index) => ({
+      id: threat.id || index + 1,
+      title: threat.title || 'Security Vulnerability',
+      severity: threat.severity || 'medium',
+      category: threat.category || 'A03: Injection',
+      riskScore: threat.riskScore || 7.0,
+      stride: threat.stride || 'Tampering',
+      cwe: threat.cwe || 'CWE-000',
+      component: threat.component || `${systemInfo.backend[0] || 'Unknown'} Component`,
+      description: (threat.description || 'Security vulnerability identified')
+        .replace(/[^\x20-\x7E]/g, ''), // Remove non-printable chars
+      attackVector: (threat.attackVector || 'Attack vector not specified')
+        .replace(/[^\x20-\x7E]/g, ''),
+      impact: threat.impact || { 
+        confidentiality: 'MEDIUM', 
+        integrity: 'MEDIUM', 
+        availability: 'LOW' 
+      },
+      likelihood: threat.likelihood || 'MEDIUM',
+      affectedAssets: threat.affectedAssets || ['Application Data'],
+      mitigation: (threat.mitigation || ['Implement security controls'])
+        .map(m => m.replace(/[^\x20-\x7E]/g, '')),
+      codeExample: threat.codeExample || {
+        vulnerable: '// Vulnerable code',
+        secure: '// Secure code'
+      },
+      testing: (threat.testing || 'Security testing required')
+        .replace(/[^\x20-\x7E]/g, ''),
+      references: threat.references || ['https://owasp.org'],
+      confirmed: threat.confirmed || false,
+      source: threat.source || 'Analysis'
+    }));
+    
+    console.log(`📊 Total threats after validation: ${validatedThreats.length}`);
+    
+    return {
+      threats: validatedThreats,
+      insight: (parsed.insight || 'Enhanced security analysis completed')
+        .replace(/\*\*/g, '')
+        .replace(/\*/g, '')
+        .replace(/[^\x20-\x7E]/g, ''),
+      riskScore: parsed.riskScore || calculateRiskScore(validatedThreats),
+      realityCheck: (parsed.realityCheck || '')
+        .replace(/[^\x20-\x7E]/g, ''),
+      analysisSummary: parsed.analysisSummary || {
+        confirmedVulns: osvResults.vulnerabilities.length,
+        predictedVulns: validatedThreats.length - osvResults.vulnerabilities.length,
+        techRealityMatch: !parsed.realityCheck || !parsed.realityCheck.includes('mismatch'),
+        keyFindings: []
+      }
+    };
+    
   } catch (error) {
     console.error('Failed to parse enhanced AI response:', error);
-    console.log('📄 Raw AI response:', aiText.substring(0, 500) + '...');
-    throw new Error('Enhanced AI response parsing failed');
+    console.log('📄 Raw AI response (first 500 chars):', aiText.substring(0, 500) + '...');
+    
+    // Return a fallback response instead of throwing
+    return {
+      threats: [],
+      insight: 'Enhanced analysis failed due to parsing error. Using basic analysis.',
+      riskScore: 50,
+      realityCheck: 'AI response parsing failed. Please try again.',
+      analysisSummary: {
+        confirmedVulns: osvResults?.vulnerabilities?.length || 0,
+        predictedVulns: 0,
+        techRealityMatch: false,
+        keyFindings: ['AI parsing error']
+      }
+    };
   }
 };
 
@@ -2211,33 +2263,63 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                     </div>
 
                     {threat.codeExample && (
-                      <div className="tm-section">
-                        <h4>Code Example</h4>
-                        <div className="tm-code-examples">
-                          <div className="tm-code-block vulnerable">
-                            <div className="tm-code-header">
-                              <XCircle size={16} />
-                              <span>Vulnerable Code</span>
-                              <button onClick={() => copyCode(threat.codeExample.vulnerable, `vuln-${threat.id}`)}>
-                                {copiedCode === `vuln-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
-                              </button>
-                            </div>
-                            <pre><code>{threat.codeExample.vulnerable}</code></pre>
-                          </div>
-                          <div className="tm-code-block secure">
-                            <div className="tm-code-header">
-                              <CheckCircle size={16} />
-                              <span>Secure Code</span>
-                              <button onClick={() => copyCode(threat.codeExample.secure, `secure-${threat.id}`)}>
-                                {copiedCode === `secure-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
-                              </button>
-                            </div>
-                            <pre><code>{threat.codeExample.secure}</code></pre>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
+  <div className="tm-section">
+    <h4>Code Example</h4>
+    <div className="tm-code-examples">
+      <div className="tm-code-block vulnerable">
+        <div className="tm-code-header">
+          <XCircle size={16} />
+          <span>Vulnerable Code</span>
+          {/* ADD THIS LINE - File location */}
+          {threat.component && (
+            <span style={{ 
+              fontSize: '12px', 
+              color: '#666',
+              marginLeft: '8px',
+              fontFamily: 'monospace',
+              background: '#fee2e2',
+              padding: '2px 6px',
+              borderRadius: '4px'
+            }}>
+              📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
+              {threat.description && threat.description.match(/line\s+(\d+)/i) && 
+                `:${threat.description.match(/line\s+(\d+)/i)[1]}`
+              }
+            </span>
+          )}
+          <button onClick={() => copyCode(threat.codeExample.vulnerable, `vuln-${threat.id}`)}>
+            {copiedCode === `vuln-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
+          </button>
+        </div>
+        <pre><code>{threat.codeExample.vulnerable}</code></pre>
+      </div>
+      <div className="tm-code-block secure">
+        <div className="tm-code-header">
+          <CheckCircle size={16} />
+          <span>Secure Code</span>
+          {/* ADD THIS LINE - File location for secure code (same file) */}
+          {threat.component && (
+            <span style={{ 
+              fontSize: '12px', 
+              color: '#666',
+              marginLeft: '8px',
+              fontFamily: 'monospace',
+              background: '#dcfce7',
+              padding: '2px 6px',
+              borderRadius: '4px'
+            }}>
+              📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
+            </span>
+          )}
+          <button onClick={() => copyCode(threat.codeExample.secure, `secure-${threat.id}`)}>
+            {copiedCode === `secure-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
+          </button>
+        </div>
+        <pre><code>{threat.codeExample.secure}</code></pre>
+      </div>
+    </div>
+  </div>
+)}
                     <div className="tm-section">
                       <h4>Testing Recommendations</h4>
                       <p>{threat.testing}</p>
