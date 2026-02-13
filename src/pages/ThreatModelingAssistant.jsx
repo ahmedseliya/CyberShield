@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Brain, AlertTriangle, CheckCircle, XCircle, Download, Loader, Send, Zap, Target, Lock, Database, Cloud, Code, FileText, BarChart3, TrendingUp, MessageSquare, Search, Filter, ChevronDown, ChevronRight, ExternalLink, Copy, Check, GitBranch, Package, AlertOctagon, FileCode } from 'lucide-react';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY_ThreatModel;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
@@ -45,14 +46,11 @@ const analyzeWithEnhancedAI = async (systemInfo, gitUrl) => {
     
     console.log('🤖 Generating enhanced AI analysis...');
     const enhancedResponse = await callEnhancedGeminiAPI(systemInfo, repoData, osvResults);
-    
-    console.log('✅ Enhanced AI analysis successful');
     return enhancedResponse;
-    
   } catch (error) {
     console.warn('⚠️ Enhanced analysis failed, falling back to basic AI:', error.message);
-    console.error('Full error:', error);
     
+    // FIX: Use the SAME pattern as first code
     const basicResponse = await analyzeWithAI(systemInfo);
     
     return {
@@ -72,8 +70,7 @@ const getRepomixDigest = async (gitUrl) => {
   try {
     console.log('🔍 Fetching repository via Repomix Bridge:', gitUrl);
     
-    // Updated: Use your Cloudflare Worker as proxy to your Repomix Bridge
-    const proxyUrl = `${CLOUDFLARE_PROXY_URL}`; // This should point to your Cloudflare Worker
+    const proxyUrl = `${CLOUDFLARE_PROXY_URL}`;
     
     console.log('🔍 Using proxy URL:', proxyUrl);
     
@@ -114,10 +111,7 @@ const getRepomixDigest = async (gitUrl) => {
     console.log('📦 Dependencies found:', result.dependencies ? result.dependencies.length : 0);
     console.log('📄 Code size:', result.rawText ? result.rawText.length : 0, 'characters');
     
-    // Extract files from raw text if fileStructure is not provided
     const fileStructure = extractFilesFromRepomix(result.rawText || '');
-    
-    // Generate a summary if not provided
     const summary = generateSummaryFromCode(result.rawText || '', result.fileCount || 0);
     
     return {
@@ -130,39 +124,7 @@ const getRepomixDigest = async (gitUrl) => {
     
   } catch (error) {
     console.error('❌ Repomix Bridge failed:', error);
-    
-    // Fallback: Try the old method as backup
-    console.log('🔄 Trying fallback analysis...');
-    try {
-      const fallbackUrl = `https://repomix.com/api/analyze?url=${encodeURIComponent(gitUrl)}&format=text`;
-      const fallbackResponse = await fetch(fallbackUrl);
-      
-      if (fallbackResponse.ok) {
-        const rawText = await fallbackResponse.text();
-        const dependencies = parseDependenciesFromCode(rawText);
-        const fileCount = rawText.match(/Analyzed (\d+) files?/i)?.[1] || 0;
-        const fileStructure = extractFilesFromRepomix(rawText);
-        const summary = generateSummaryFromCode(rawText, fileCount);
-        
-        return {
-          rawText,
-          dependencies,
-          fileStructure,
-          fileCount: parseInt(fileCount),
-          summary
-        };
-      }
-    } catch (fallbackError) {
-      console.warn('Fallback also failed:', fallbackError.message);
-    }
-    
-    return {
-      rawText: `Repomix analysis failed: ${error.message}`,
-      dependencies: [],
-      fileStructure: [],
-      fileCount: 0,
-      summary: 'Repository analysis failed - using limited data'
-    };
+    throw error; // Throw to trigger fallback
   }
 };
 
@@ -222,7 +184,6 @@ const filterSecurityCriticalFiles = (rawText) => {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // Check if this is a file header (Repomix format)
     if (line.startsWith('File: ') || line.includes('────────────────')) {
       const fileMatch = line.match(/File:\s*(.+)/i);
       if (fileMatch) {
@@ -238,11 +199,9 @@ const filterSecurityCriticalFiles = (rawText) => {
         filteredLines.push(line);
       }
     } else if (currentFile && isSecurityCritical) {
-      // Keep lines from security-critical files
       filteredLines.push(line);
     }
     
-    // Stop if we have enough security files
     if (securityFilesCount > 50 && filteredLines.length > 10000) {
       console.log('📦 Collected', securityFilesCount, 'security-critical files, stopping...');
       filteredLines.push('\n\n... (additional files truncated for security analysis)');
@@ -259,7 +218,6 @@ const parseDependenciesFromCode = (rawText) => {
   
   console.log('🔍 Extracting dependencies from full code...');
   
-  // Try to find package.json content
   const packageJsonMatch = rawText.match(/File: .*package\.json[\s\S]*?```json\s*([\s\S]*?)```/i);
   if (packageJsonMatch) {
     try {
@@ -295,7 +253,6 @@ const parseDependenciesFromCode = (rawText) => {
     }
   }
   
-  // Try to find requirements.txt
   const requirementsMatch = rawText.match(/File: .*requirements\.txt[\s\S]*?```txt\s*([\s\S]*?)```/i);
   if (requirementsMatch) {
     console.log('🐍 Found requirements.txt');
@@ -319,7 +276,6 @@ const parseDependenciesFromCode = (rawText) => {
     });
   }
   
-  // Try to find composer.json
   const composerMatch = rawText.match(/File: .*composer\.json[\s\S]*?```json\s*([\s\S]*?)```/i);
   if (composerMatch) {
     try {
@@ -342,7 +298,6 @@ const parseDependenciesFromCode = (rawText) => {
     }
   }
   
-  // Try to find pom.xml
   const pomMatch = rawText.match(/File: .*pom\.xml[\s\S]*?```xml\s*([\s\S]*?)```/i);
   if (pomMatch) {
     console.log('☕ Found pom.xml');
@@ -362,11 +317,9 @@ const parseDependenciesFromCode = (rawText) => {
     }
   }
   
-  // Scan for other dependency patterns in code
   if (dependencies.length === 0) {
     console.log('🔍 Scanning code for import/require patterns...');
     
-    // Look for npm imports
     const importRegex = /(?:import|require)\(?['"]([@\w\-\/]+)['"]\)?/g;
     let importMatch;
     while ((importMatch = importRegex.exec(rawText)) !== null) {
@@ -384,7 +337,6 @@ const parseDependenciesFromCode = (rawText) => {
   
   console.log(`🔍 Total dependencies found: ${dependencies.length}`);
   
-  // Remove duplicates
   const uniqueDeps = [];
   const seen = new Set();
   
@@ -400,7 +352,6 @@ const parseDependenciesFromCode = (rawText) => {
 };
 
 const generateSummaryFromCode = (rawText, fileCount) => {
-  // Analyze code to generate intelligent summary
   const hasReact = rawText.includes('import React') || rawText.includes('from "react"');
   const hasVue = rawText.includes('Vue.component') || rawText.includes('new Vue(');
   const hasAngular = rawText.includes('@angular') || rawText.includes('@Component');
@@ -549,11 +500,9 @@ const createEnhancedAIPrompt = (systemInfo, repoData, osvResults) => {
   let codeAnalysisContent = '';
   
   if (repoData.rawText && repoData.rawText.length > 100) {
-    // Send up to 150,000 characters (safely under Gemini limits)
     codeAnalysisContent = repoData.rawText.substring(0, 150000);
   }
   
-  // FIXED: Handle undefined repoData.summary
   const repoSummary = repoData.summary || `Repository analyzed: ${repoData.fileCount} files, ${repoData.dependencies.length} dependencies`;
   const summaryFirstLine = repoSummary.split ? repoSummary.split('\n')[0] || repoSummary : repoSummary;
   
@@ -647,15 +596,13 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
   try {
     console.log('🔍 Parsing enhanced AI response...');
     
-    // Clean the AI response before parsing
     let cleanedText = aiText
-      .replace(/```json\s*/g, '') // Remove ```json
-      .replace(/```\s*$/g, '')     // Remove trailing ```
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
-      .replace(/\\(?!["\\/bfnrt])/g, '\\\\') // Fix bad escapes
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*$/g, '')
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      .replace(/\\(?!["\\/bfnrt])/g, '\\\\')
       .trim();
     
-    // Find JSON object boundaries
     const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON object found in response');
@@ -667,13 +614,12 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
     } catch (parseError) {
       console.warn('Initial parse failed, attempting to fix...', parseError.message);
       
-      // More aggressive cleaning
       const fixedJson = jsonMatch[0]
-        .replace(/\n/g, '\\n')     // Escape newlines in strings
-        .replace(/\r/g, '\\r')      // Escape carriage returns
-        .replace(/\t/g, '\\t')      // Escape tabs
-        .replace(/\\'/g, "'")       // Fix single quotes
-        .replace(/\\(?![\\"\/bfnrt])/g, '\\\\'); // Fix remaining bad escapes
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/\\'/g, "'")
+        .replace(/\\(?![\\"\/bfnrt])/g, '\\\\');
       
       parsed = JSON.parse(fixedJson);
     }
@@ -682,7 +628,6 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
     
     const allThreats = [];
     
-    // Add OSV vulnerabilities
     osvResults.vulnerabilities.forEach((vuln, index) => {
       allThreats.push({
         ...vuln,
@@ -692,7 +637,6 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
       });
     });
     
-    // Add AI-predicted threats
     if (parsed.threats && Array.isArray(parsed.threats)) {
       parsed.threats.forEach((threat, index) => {
         allThreats.push({
@@ -704,7 +648,6 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
       });
     }
     
-    // Validate and normalize all threats
     const validatedThreats = allThreats.map((threat, index) => ({
       id: threat.id || index + 1,
       title: threat.title || 'Security Vulnerability',
@@ -715,7 +658,7 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
       cwe: threat.cwe || 'CWE-000',
       component: threat.component || `${systemInfo.backend[0] || 'Unknown'} Component`,
       description: (threat.description || 'Security vulnerability identified')
-        .replace(/[^\x20-\x7E]/g, ''), // Remove non-printable chars
+        .replace(/[^\x20-\x7E]/g, ''),
       attackVector: (threat.attackVector || 'Attack vector not specified')
         .replace(/[^\x20-\x7E]/g, ''),
       impact: threat.impact || { 
@@ -747,26 +690,19 @@ const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
         .replace(/\*/g, '')
         .replace(/[^\x20-\x7E]/g, ''),
       riskScore: parsed.riskScore || calculateRiskScore(validatedThreats),
-      realityCheck: (parsed.realityCheck || '')
-        .replace(/[^\x20-\x7E]/g, ''),
-      analysisSummary: parsed.analysisSummary || {
-        confirmedVulns: osvResults.vulnerabilities.length,
-        predictedVulns: validatedThreats.length - osvResults.vulnerabilities.length,
-        techRealityMatch: !parsed.realityCheck || !parsed.realityCheck.includes('mismatch'),
-        keyFindings: []
-      }
+      realityCheck: '',
+      analysisSummary: null
     };
     
   } catch (error) {
     console.error('Failed to parse enhanced AI response:', error);
     console.log('📄 Raw AI response (first 500 chars):', aiText.substring(0, 500) + '...');
     
-    // Return a fallback response instead of throwing
     return {
       threats: [],
       insight: 'Enhanced analysis failed due to parsing error. Using basic analysis.',
       riskScore: 50,
-      realityCheck: 'AI response parsing failed. Please try again.',
+      realityCheck: '',
       analysisSummary: {
         confirmedVulns: osvResults?.vulnerabilities?.length || 0,
         predictedVulns: 0,
@@ -1318,10 +1254,10 @@ const getStaticChatResponse = (message) => {
   return "I understand your security question. For comprehensive analysis, please check the threat report above. For immediate concerns: always validate input, use HTTPS, and implement proper authentication.";
 };
 
-// COMPLETE REACT COMPONENT
 const ThreatModelingAssistant = () => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [scanType, setScanType] = useState('basic'); // 'basic' or 'advanced'
   const [systemInfo, setSystemInfo] = useState({
     appType: '',
     appName: '',
@@ -1336,7 +1272,6 @@ const ThreatModelingAssistant = () => {
     deployment: []
   });
   const [gitUrl, setGitUrl] = useState('');
-  const [useEnhancedAnalysis, setUseEnhancedAnalysis] = useState(false);
   const [threats, setThreats] = useState([]);
   const [filterSeverity, setFilterSeverity] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
@@ -1349,98 +1284,97 @@ const ThreatModelingAssistant = () => {
   const [aiInsight, setAiInsight] = useState('');
   const [riskScore, setRiskScore] = useState(0);
   const [usingAI, setUsingAI] = useState(true);
-  const [realityCheck, setRealityCheck] = useState('');
   const [analysisSummary, setAnalysisSummary] = useState(null);
 
   const appTypes = ['Web Application', 'Mobile App', 'REST API', 'Desktop Application', 'Microservices', 'Mobile App + Web App', 'Mobile App + Desktop App', 'Desktop App + Web App', 'Web App + Desktop App + Mobile App'];
   
   const techOptions = {
-  frontend: [
-    'React', 'Next.js', 'Vue.js', 'Angular', 'Svelte', 'React Native', 'Flutter', 
-    'Ionic', 'SwiftUI', 'Jetpack Compose', 'Xamarin', 'Apache Cordova', 'Electron',
-    'Tailwind CSS', 'Bootstrap', 'Material UI', 'Chakra UI', 'Ant Design', 'Bulma',
-    'Plain HTML/CSS/JS', 'jQuery', 'Ember.js', 'Backbone.js', 'Alpine.js', 'Solid.js',
-    'Stencil', 'Marko', 'Mithril', 'Preact', 'Lit', 'Stimulus', 'Hotwire'
-  ],
-  backend: [
-    'Node.js', 'Express.js', 'NestJS', 'Fastify', 'Koa', 'Hapi', 'AdonisJS',
-    'Python/Django', 'Python/Flask', 'FastAPI', 'Python/Pyramid', 'Python/Bottle',
-    'Java/Spring Boot', 'Java/Spring MVC', 'Java/Spring Security', 'Java/Micronaut',
-    'Java/Quarkus', 'Java/Play Framework', 'Java/Spark', 'Java/Vert.x',
-    'PHP/Laravel', 'PHP/Symfony', 'PHP/CodeIgniter', 'PHP/CakePHP', 'PHP/Yii',
-    'Ruby on Rails', 'Ruby/Sinatra', 'Ruby/Hanami', 'Ruby/Grape',
-    'Go/Gin', 'Go/Echo', 'Go/Fiber', 'Go/Chi', 'Go/Beego', 'Go/Revel',
-    '.NET', 'C#/ASP.NET Core', 'C#/ASP.NET MVC', 'F#/Giraffe', 'VB.NET',
-    'Rust/Actix', 'Rust/Rocket', 'Rust/Warp', 'Rust/Axum',
-    'Elixir/Phoenix', 'Elixir/Plug', 'Scala/Play', 'Scala/Akka HTTP',
-    'Kotlin/Ktor', 'Kotlin/Spring Boot', 'Dart/Aqueduct', 'Perl/Dancer',
-    'Haskell/Yesod', 'Haskell/Scotty', 'Clojure/Luminus', 'C++/Crow'
-  ],
-  database: [
-    'MySQL', 'PostgreSQL', 'MariaDB', 'SQLite', 'Oracle', 'Microsoft SQL Server',
-    'MongoDB', 'Redis', 'Cassandra', 'Couchbase', 'CouchDB', 'RavenDB',
-    'Firebase Realtime DB', 'Firestore', 'DynamoDB', 'ElasticSearch',
-    'Neo4j', 'ArangoDB', 'OrientDB', 'JanusGraph', 'Amazon Neptune',
-    'InfluxDB', 'TimescaleDB', 'Prometheus', 'Graphite',
-    'ClickHouse', 'Apache Druid', 'Apache Pinot', 'Snowflake',
-    'BigQuery', 'Redshift', 'Cosmos DB', 'FaunaDB', 'Supabase',
-    'CockroachDB', 'YugabyteDB', 'TiDB', 'Vitess', 'PlanetScale'
-  ],
-  authentication: [
-    'JWT (JSON Web Token)', 'OAuth 2.0', 'OpenID Connect', 'Session-based', 
-    'API Keys', 'Basic Auth', 'Digest Auth', 'HMAC', 'AWS Signature',
-    'Firebase Auth', 'Auth0', 'Cognito', 'Okta', 'OneLogin', 'Ping Identity',
-    'Azure AD', 'Keycloak', 'Passport.js', 'Devise', 'Spring Security',
-    '2FA / MFA', 'Biometric', 'WebAuthn', 'FIDO2', 'U2F', 'TOTP', 'HOTP',
-    'SAML', 'LDAP', 'Kerberos', 'CAS', 'Social Login (Google/Facebook/GitHub)'
-  ],
-  thirdParty: [
-    'Stripe', 'PayPal', 'Square', 'Braintree', 'Adyen', 'Razorpay',
-    'Google Maps API', 'Mapbox', 'Leaflet', 'OpenStreetMap',
-    'AWS S3', 'Google Cloud Storage', 'Azure Blob Storage', 'Cloudflare R2',
-    'Cloudinary', 'Imgix', 'Uploadcare', 'Filestack',
-    'Twilio', 'Vonage', 'Plivo', 'MessageBird', 'Bandwidth',
-    'SendGrid', 'Mailgun', 'Postmark', 'Amazon SES', 'Resend',
-    'Slack API', 'Microsoft Teams API', 'Discord API', 'Zoom API',
-    'Google OAuth', 'Facebook Login', 'GitHub OAuth', 'Apple Sign In',
-    'OpenAI API', 'Anthropic Claude', 'Google Gemini', 'Azure OpenAI',
-    'AWS Bedrock', 'Hugging Face', 'Cohere', 'Stability AI',
-    'Stripe Connect', 'Plaid', 'Yodlee', 'Teller', 'Finicity'
-  ],
-  userInputs: [
-    'Forms', 'File Uploads', 'Search', 'Comments', 'Chat/Messaging', 
-    'Rich Text Editor', 'JSON API Input', 'URL Parameters', 'Headers',
-    'Cookies', 'WebSockets', 'GraphQL Queries', 'gRPC Messages',
-    'XML Input', 'CSV Upload', 'Image Upload', 'Video Upload',
-    'Audio Upload', 'Document Upload', 'Archive Upload',
-    'User Profiles', 'Settings', 'Preferences', 'Contact Forms',
-    'Registration Forms', 'Login Forms', 'Payment Forms',
-    'Feedback Forms', 'Survey Forms', 'Quiz Forms'
-  ],
-  sensitiveData: [
-    'Passwords', 'Credit/Debit Cards', 'Bank Accounts', 'Cryptocurrency',
-    'PII (Personal Identifiable Information)', 'Health Data (PHI)', 
-    'Financial Records', 'Tax Information', 'Insurance Information',
-    'API Keys', 'Access Tokens', 'Refresh Tokens', 'Session Tokens',
-    'Encryption Keys', 'Digital Certificates', 'SSH Keys',
-    'Biometric Data', 'Genetic Data', 'Facial Recognition Data',
-    'Location Data', 'GPS Coordinates', 'IP Addresses', 'MAC Addresses',
-    'Social Security Numbers', 'Passport Numbers', 'Driver License',
-    'Medical Records', 'Prescription Data', 'Insurance Claims',
-    'Salary Information', 'Tax Returns', 'Investment Portfolios',
-    'Trade Secrets', 'Source Code', 'Algorithm Data', 'Training Data'
-  ],
-  deployment: [
-    'AWS', 'Google Cloud', 'Azure', 'IBM Cloud', 'Oracle Cloud', 'Alibaba Cloud',
-    'Heroku', 'Vercel', 'Netlify', 'Railway', 'Render', 'Fly.io',
-    'DigitalOcean', 'Linode', 'Vultr', 'Scaleway', 'Upcloud',
-    'Docker', 'Kubernetes', 'Docker Swarm', 'Nomad', 'Mesos',
-    'On-Premise', 'Bare Metal', 'Colocation', 'Private Cloud',
-    'Nginx', 'Apache', 'Caddy', 'Traefik', 'Envoy', 'HAProxy',
-    'Cloudflare', 'Akamai', 'Fastly', 'AWS CloudFront', 'Google CDN',
-    'GitHub Pages', 'GitLab Pages', 'Bitbucket Pages', 'Surge.sh'
-  ]
-};
+    frontend: [
+      'React', 'Next.js', 'Vue.js', 'Angular', 'Svelte', 'React Native', 'Flutter', 
+      'Ionic', 'SwiftUI', 'Jetpack Compose', 'Xamarin', 'Apache Cordova', 'Electron',
+      'Tailwind CSS', 'Bootstrap', 'Material UI', 'Chakra UI', 'Ant Design', 'Bulma',
+      'Plain HTML/CSS/JS', 'jQuery', 'Ember.js', 'Backbone.js', 'Alpine.js', 'Solid.js',
+      'Stencil', 'Marko', 'Mithril', 'Preact', 'Lit', 'Stimulus', 'Hotwire'
+    ],
+    backend: [
+      'Node.js', 'Express.js', 'NestJS', 'Fastify', 'Koa', 'Hapi', 'AdonisJS',
+      'Python/Django', 'Python/Flask', 'FastAPI', 'Python/Pyramid', 'Python/Bottle',
+      'Java/Spring Boot', 'Java/Spring MVC', 'Java/Spring Security', 'Java/Micronaut',
+      'Java/Quarkus', 'Java/Play Framework', 'Java/Spark', 'Java/Vert.x',
+      'PHP/Laravel', 'PHP/Symfony', 'PHP/CodeIgniter', 'PHP/CakePHP', 'PHP/Yii',
+      'Ruby on Rails', 'Ruby/Sinatra', 'Ruby/Hanami', 'Ruby/Grape',
+      'Go/Gin', 'Go/Echo', 'Go/Fiber', 'Go/Chi', 'Go/Beego', 'Go/Revel',
+      '.NET', 'C#/ASP.NET Core', 'C#/ASP.NET MVC', 'F#/Giraffe', 'VB.NET',
+      'Rust/Actix', 'Rust/Rocket', 'Rust/Warp', 'Rust/Axum',
+      'Elixir/Phoenix', 'Elixir/Plug', 'Scala/Play', 'Scala/Akka HTTP',
+      'Kotlin/Ktor', 'Kotlin/Spring Boot', 'Dart/Aqueduct', 'Perl/Dancer',
+      'Haskell/Yesod', 'Haskell/Scotty', 'Clojure/Luminus', 'C++/Crow'
+    ],
+    database: [
+      'MySQL', 'PostgreSQL', 'MariaDB', 'SQLite', 'Oracle', 'Microsoft SQL Server',
+      'MongoDB', 'Redis', 'Cassandra', 'Couchbase', 'CouchDB', 'RavenDB',
+      'Firebase Realtime DB', 'Firestore', 'DynamoDB', 'ElasticSearch',
+      'Neo4j', 'ArangoDB', 'OrientDB', 'JanusGraph', 'Amazon Neptune',
+      'InfluxDB', 'TimescaleDB', 'Prometheus', 'Graphite',
+      'ClickHouse', 'Apache Druid', 'Apache Pinot', 'Snowflake',
+      'BigQuery', 'Redshift', 'Cosmos DB', 'FaunaDB', 'Supabase',
+      'CockroachDB', 'YugabyteDB', 'TiDB', 'Vitess', 'PlanetScale'
+    ],
+    authentication: [
+      'JWT (JSON Web Token)', 'OAuth 2.0', 'OpenID Connect', 'Session-based', 
+      'API Keys', 'Basic Auth', 'Digest Auth', 'HMAC', 'AWS Signature',
+      'Firebase Auth', 'Auth0', 'Cognito', 'Okta', 'OneLogin', 'Ping Identity',
+      'Azure AD', 'Keycloak', 'Passport.js', 'Devise', 'Spring Security',
+      '2FA / MFA', 'Biometric', 'WebAuthn', 'FIDO2', 'U2F', 'TOTP', 'HOTP',
+      'SAML', 'LDAP', 'Kerberos', 'CAS', 'Social Login (Google/Facebook/GitHub)'
+    ],
+    thirdParty: [
+      'Stripe', 'PayPal', 'Square', 'Braintree', 'Adyen', 'Razorpay',
+      'Google Maps API', 'Mapbox', 'Leaflet', 'OpenStreetMap',
+      'AWS S3', 'Google Cloud Storage', 'Azure Blob Storage', 'Cloudflare R2',
+      'Cloudinary', 'Imgix', 'Uploadcare', 'Filestack',
+      'Twilio', 'Vonage', 'Plivo', 'MessageBird', 'Bandwidth',
+      'SendGrid', 'Mailgun', 'Postmark', 'Amazon SES', 'Resend',
+      'Slack API', 'Microsoft Teams API', 'Discord API', 'Zoom API',
+      'Google OAuth', 'Facebook Login', 'GitHub OAuth', 'Apple Sign In',
+      'OpenAI API', 'Anthropic Claude', 'Google Gemini', 'Azure OpenAI',
+      'AWS Bedrock', 'Hugging Face', 'Cohere', 'Stability AI',
+      'Stripe Connect', 'Plaid', 'Yodlee', 'Teller', 'Finicity'
+    ],
+    userInputs: [
+      'Forms', 'File Uploads', 'Search', 'Comments', 'Chat/Messaging', 
+      'Rich Text Editor', 'JSON API Input', 'URL Parameters', 'Headers',
+      'Cookies', 'WebSockets', 'GraphQL Queries', 'gRPC Messages',
+      'XML Input', 'CSV Upload', 'Image Upload', 'Video Upload',
+      'Audio Upload', 'Document Upload', 'Archive Upload',
+      'User Profiles', 'Settings', 'Preferences', 'Contact Forms',
+      'Registration Forms', 'Login Forms', 'Payment Forms',
+      'Feedback Forms', 'Survey Forms', 'Quiz Forms'
+    ],
+    sensitiveData: [
+      'Passwords', 'Credit/Debit Cards', 'Bank Accounts', 'Cryptocurrency',
+      'PII (Personal Identifiable Information)', 'Health Data (PHI)', 
+      'Financial Records', 'Tax Information', 'Insurance Information',
+      'API Keys', 'Access Tokens', 'Refresh Tokens', 'Session Tokens',
+      'Encryption Keys', 'Digital Certificates', 'SSH Keys',
+      'Biometric Data', 'Genetic Data', 'Facial Recognition Data',
+      'Location Data', 'GPS Coordinates', 'IP Addresses', 'MAC Addresses',
+      'Social Security Numbers', 'Passport Numbers', 'Driver License',
+      'Medical Records', 'Prescription Data', 'Insurance Claims',
+      'Salary Information', 'Tax Returns', 'Investment Portfolios',
+      'Trade Secrets', 'Source Code', 'Algorithm Data', 'Training Data'
+    ],
+    deployment: [
+      'AWS', 'Google Cloud', 'Azure', 'IBM Cloud', 'Oracle Cloud', 'Alibaba Cloud',
+      'Heroku', 'Vercel', 'Netlify', 'Railway', 'Render', 'Fly.io',
+      'DigitalOcean', 'Linode', 'Vultr', 'Scaleway', 'Upcloud',
+      'Docker', 'Kubernetes', 'Docker Swarm', 'Nomad', 'Mesos',
+      'On-Premise', 'Bare Metal', 'Colocation', 'Private Cloud',
+      'Nginx', 'Apache', 'Caddy', 'Traefik', 'Envoy', 'HAProxy',
+      'Cloudflare', 'Akamai', 'Fastly', 'AWS CloudFront', 'Google CDN',
+      'GitHub Pages', 'GitLab Pages', 'Bitbucket Pages', 'Surge.sh'
+    ]
+  };
 
   const owaspCategories = [
     'A01: Broken Access Control',
@@ -1458,17 +1392,16 @@ const ThreatModelingAssistant = () => {
   const generateThreats = async () => {
     setLoading(true);
     setUsingAI(true);
-    setRealityCheck('');
     setAnalysisSummary(null);
     
     try {
       let analysis;
       
-      if (useEnhancedAnalysis && gitUrl) {
+      if (scanType === 'advanced' && gitUrl) {
+        // Advanced scan with Repomix + OSV
         analysis = await analyzeWithEnhancedAI(systemInfo, gitUrl);
-        setRealityCheck(analysis.realityCheck || '');
-        setAnalysisSummary(analysis.analysisSummary || null);
       } else {
+        // Basic scan - AI analysis based on description and tech stack
         analysis = await analyzeWithAI(systemInfo);
       }
       
@@ -1515,25 +1448,25 @@ const ThreatModelingAssistant = () => {
   };
 
   const generateChecklist = (threats) => {
-  const items = [];
-  threats.forEach(threat => {
-    threat.mitigation.forEach((mitigation, idx) => {
-      const cleanMitigation = mitigation
-        .replace(/\*\*/g, '')
-        .replace(/\*/g, '')
-        .replace(/`/g, '');
-      
-      items.push({
-        id: `${threat.id}-${idx}`,
-        text: cleanMitigation,
-        category: threat.category,
-        severity: threat.severity,
-        completed: false
+    const items = [];
+    threats.forEach(threat => {
+      threat.mitigation.forEach((mitigation, idx) => {
+        const cleanMitigation = mitigation
+          .replace(/\*\*/g, '')
+          .replace(/\*/g, '')
+          .replace(/`/g, '');
+        
+        items.push({
+          id: `${threat.id}-${idx}`,
+          text: cleanMitigation,
+          category: threat.category,
+          severity: threat.severity,
+          completed: false
+        });
       });
     });
-  });
-  setChecklist(items);
-};
+    setChecklist(items);
+  };
 
   const handleMultiSelect = (category, value) => {
     setSystemInfo(prev => ({
@@ -1572,14 +1505,9 @@ THREAT MODEL REPORT
 ===================
 Application: ${systemInfo.appName}
 Type: ${systemInfo.appType}
-Analysis Type: ${usingAI ? 'AI-Powered' : 'Static Analysis'}
-Enhanced Analysis: ${useEnhancedAnalysis ? 'Yes (Repomix + OSV)' : 'No'}
+Scan Type: ${scanType === 'advanced' ? 'Advanced Scan (Repomix + OSV)' : 'Basic Scan'}
 Git Repository: ${gitUrl || 'Not provided'}
 Generated: ${new Date().toLocaleString()}
-
-${realityCheck ? `\nREALITY CHECK:\n${realityCheck}\n` : ''}
-
-${analysisSummary ? `\nANALYSIS SUMMARY:\n- Confirmed Vulnerabilities: ${analysisSummary.confirmedVulns}\n- Predicted Vulnerabilities: ${analysisSummary.predictedVulns}\n- Tech Reality Match: ${analysisSummary.techRealityMatch ? 'Yes' : 'No'}\n` : ''}
 
 ${aiInsight}
 
@@ -1624,21 +1552,21 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
     );
   };
 
- const renderAIStatus = () => (
-  <div className={`tm-ai-status ${usingAI ? 'ai-active' : 'ai-fallback'}`}>
-    {usingAI ? (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4.5px' }}>
-        <Brain size={16} />
-        <span>{useEnhancedAnalysis ? 'Enhanced AI Analysis' : 'AI-Powered Analysis'}</span>
-      </div>
-    ) : (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4.5px' }}>
-        <Shield size={16} />
-        <span>Static Analysis</span>
-      </div>
-    )}
-  </div>
-);
+  const renderAIStatus = () => (
+    <div className={`tm-ai-status ${usingAI ? 'ai-active' : 'ai-fallback'}`}>
+      {usingAI ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4.5px' }}>
+          <Brain size={16} />
+          <span>{scanType === 'advanced' ? 'Advanced Scan' : 'Basic Scan'}</span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4.5px' }}>
+          <Shield size={16} />
+          <span>Static Analysis</span>
+        </div>
+      )}
+    </div>
+  );
 
   if (step === 1) {
     return (
@@ -1652,6 +1580,29 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
             </div>
           </div>
           {renderAIStatus()}
+        </div>
+
+        <div className="tm-scan-selector">
+          <button 
+            className={`tm-scan-btn ${scanType === 'basic' ? 'active' : ''}`}
+            onClick={() => setScanType('basic')}
+          >
+            <Zap size={20} />
+            <div>
+              <h3>Basic Scan</h3>
+              <p>Quick analysis based on your tech stack and description</p>
+            </div>
+          </button>
+          <button 
+            className={`tm-scan-btn ${scanType === 'advanced' ? 'active' : ''}`}
+            onClick={() => setScanType('advanced')}
+          >
+            <Package size={20} />
+            <div>
+              <h3>Advanced Scan</h3>
+              <p>Deep analysis with actual code review and dependency checking</p>
+            </div>
+          </button>
         </div>
 
         <div className="tm-wizard">
@@ -1701,7 +1652,9 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
               <div className="tm-input-group">
                 <label>Description</label>
                 <textarea
-                  placeholder="Describe your application in plain English (required)..."
+                  placeholder={scanType === 'advanced' 
+                    ? "Describe your application in detail including tech stack, features, and architecture..." 
+                    : "Describe your application in plain English (required)..."}
                   value={systemInfo.description}
                   onChange={(e) => setSystemInfo({...systemInfo, description: e.target.value})}
                   rows={4}
@@ -1709,175 +1662,168 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                 />
               </div>
 
-              <div className="tm-input-group">
-                <label>
-                  <GitBranch size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-                  Git Repository URL (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="https://github.com/user/repository"
-                  value={gitUrl}
-                  onChange={(e) => setGitUrl(e.target.value)}
-                />
-                <div className="tm-input-hint">
-                  Provide a GitHub/GitLab URL for enhanced analysis with actual code review
-                </div>
-              </div>
-
-              {gitUrl && (
-                <div className="tm-toggle-group">
-                  <label className="tm-toggle">
-                    <input
-                      type="checkbox"
-                      checked={useEnhancedAnalysis}
-                      onChange={(e) => setUseEnhancedAnalysis(e.target.checked)}
-                    />
-                    <span className="tm-toggle-slider"></span>
-                    <span className="tm-toggle-label">
-                      <Package size={14} style={{ marginRight: '6px' }} />
-                      Enable Enhanced Analysis (Repomix + OSV)
-                    </span>
+              {scanType === 'advanced' && (
+                <div className="tm-input-group">
+                  <label>
+                    <GitBranch size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                    Git Repository URL
                   </label>
+                  <input
+                    type="text"
+                    placeholder="https://github.com/user/repository"
+                    value={gitUrl}
+                    onChange={(e) => setGitUrl(e.target.value)}
+                    required={scanType === 'advanced'}
+                  />
                   <div className="tm-input-hint">
-                    When enabled: Analyzes ACTUAL code + checks for confirmed vulnerabilities in dependencies
+                    Provide a GitHub/GitLab URL for actual code analysis and dependency checking
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="tm-form-section">
-              <h3><Code size={20} /> Technology Stack</h3>
-              
-              <div className="tm-multi-select">
-                <label>Frontend Technologies</label>
-                <div className="tm-chips">
-                  {techOptions.frontend.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.frontend.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('frontend', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {scanType === 'basic' && (
+              <>
+                <div className="tm-form-section">
+                  <h3><Code size={20} /> Technology Stack</h3>
+                  
+                  <div className="tm-multi-select">
+                    <label>Frontend Technologies</label>
+                    <div className="tm-chips">
+                      {techOptions.frontend.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.frontend.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('frontend', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="tm-multi-select">
-                <label>Backend Technologies</label>
-                <div className="tm-chips">
-                  {techOptions.backend.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.backend.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('backend', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                  <div className="tm-multi-select">
+                    <label>Backend Technologies</label>
+                    <div className="tm-chips">
+                      {techOptions.backend.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.backend.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('backend', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="tm-multi-select">
-                <label>Database</label>
-                <div className="tm-chips">
-                  {techOptions.database.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.database.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('database', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                  <div className="tm-multi-select">
+                    <label>Database</label>
+                    <div className="tm-chips">
+                      {techOptions.database.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.database.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('database', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="tm-multi-select">
-                <label>Authentication Methods</label>
-                <div className="tm-chips">
-                  {techOptions.authentication.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.authentication.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('authentication', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
+                  <div className="tm-multi-select">
+                    <label>Authentication Methods</label>
+                    <div className="tm-chips">
+                      {techOptions.authentication.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.authentication.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('authentication', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="tm-form-section">
-              <h3><Target size={20} /> Attack Surface</h3>
-              
-              <div className="tm-multi-select">
-                <label>User Input Points</label>
-                <div className="tm-chips">
-                  {techOptions.userInputs.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.userInputs.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('userInputs', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                <div className="tm-form-section">
+                  <h3><Target size={20} /> Attack Surface</h3>
+                  
+                  <div className="tm-multi-select">
+                    <label>User Input Points</label>
+                    <div className="tm-chips">
+                      {techOptions.userInputs.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.userInputs.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('userInputs', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="tm-multi-select">
-                <label>Sensitive Data Handled</label>
-                <div className="tm-chips">
-                  {techOptions.sensitiveData.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.sensitiveData.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('sensitiveData', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                  <div className="tm-multi-select">
+                    <label>Sensitive Data Handled</label>
+                    <div className="tm-chips">
+                      {techOptions.sensitiveData.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.sensitiveData.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('sensitiveData', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="tm-multi-select">
-                <label>Third-party Integrations</label>
-                <div className="tm-chips">
-                  {techOptions.thirdParty.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.thirdParty.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('thirdParty', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                  <div className="tm-multi-select">
+                    <label>Third-party Integrations</label>
+                    <div className="tm-chips">
+                      {techOptions.thirdParty.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.thirdParty.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('thirdParty', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="tm-multi-select">
-                <label>Deployment Environment</label>
-                <div className="tm-chips">
-                  {techOptions.deployment.map(tech => (
-                    <button
-                      key={tech}
-                      className={`tm-chip ${systemInfo.deployment.includes(tech) ? 'active' : ''}`}
-                      onClick={() => handleMultiSelect('deployment', tech)}
-                    >
-                      {tech}
-                    </button>
-                  ))}
+                  <div className="tm-multi-select">
+                    <label>Deployment Environment</label>
+                    <div className="tm-chips">
+                      {techOptions.deployment.map(tech => (
+                        <button
+                          key={tech}
+                          className={`tm-chip ${systemInfo.deployment.includes(tech) ? 'active' : ''}`}
+                          onClick={() => handleMultiSelect('deployment', tech)}
+                        >
+                          {tech}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </>
+            )}
 
             <button 
               className="tm-btn-primary tm-btn-large"
               onClick={() => setStep(2)}
-              disabled={!systemInfo.appName || !systemInfo.appType || !systemInfo.description || systemInfo.backend.length === 0}
+              disabled={
+                !systemInfo.appName || 
+                !systemInfo.appType || 
+                !systemInfo.description || 
+                (scanType === 'basic' && systemInfo.backend.length === 0) ||
+                (scanType === 'advanced' && !gitUrl)
+              }
             >
               Continue to Analysis <ChevronRight size={20} />
             </button>
@@ -1888,120 +1834,121 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
   }
 
   if (step === 2) {
-  return (
-    <div className="threat-modeling-container">
-      <div className="tm-header">
-        <div className="tm-header-content">
-          <Brain size={40} className="tm-logo" />
-          <div>
-            <h1>AI-Powered Threat Modeling Assistant</h1>
-            <p>Analyzing your application for security threats...</p>
-          </div>
-        </div>
-        {renderAIStatus()}
-      </div>
-
-      <div className="tm-wizard">
-        <div className="tm-wizard-steps">
-          <div className="tm-step completed">
-            <div className="tm-step-number"><CheckCircle size={20} /></div>
-            <div className="tm-step-label">System Info</div>
-          </div>
-          <div className="tm-step-line active"></div>
-          <div className="tm-step active">
-            <div className="tm-step-number">2</div>
-            <div className="tm-step-label">Analysis</div>
-          </div>
-          <div className="tm-step-line"></div>
-          <div className="tm-step">
-            <div className="tm-step-number">3</div>
-            <div className="tm-step-label">Results</div>
-          </div>
-        </div>
-
-        <div className="tm-analysis-screen">
-          <div className="tm-analysis-card">
-            <Shield size={64} className="tm-analysis-icon pulse" />
-            <h2>Analyzing Security Posture</h2>
-            <p>
-              {useEnhancedAnalysis && gitUrl 
-                ? "AI is analyzing your ACTUAL codebase and checking for confirmed vulnerabilities..." 
-                : loading 
-                  ? "AI is actively scanning your application..." 
-                  : "Ready to analyze your application architecture"}
-            </p>
-            
-            <div className="tm-progress-steps">
-              {useEnhancedAnalysis && gitUrl && (
-                <>
-                  <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
-                    {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon"><FileCode size={14} /></div>}
-                    <span>Fetching repository</span>
-                    {loading && <div className="tm-step-status">Using Repomix...</div>}
-                  </div>
-                  <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
-                    {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon"><Package size={14} /></div>}
-                    <span>Analyzing dependencies</span>
-                    {loading && <div className="tm-step-status">Checking OSV...</div>}
-                  </div>
-                </>
-              )}
-              <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
-                {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">1</div>}
-                <span>Mapping attack surface</span>
-                {loading && <div className="tm-step-status">Scanning code...</div>}
-              </div>
-              <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
-                {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">2</div>}
-                <span>Identifying threat vectors</span>
-                {loading && <div className="tm-step-status">Analyzing patterns...</div>}
-              </div>
-              <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
-                {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">3</div>}
-                <span>Calculating risk scores</span>
-                {loading && <div className="tm-step-status">Processing...</div>}
-              </div>
-              <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
-                {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">4</div>}
-                <span>Generating mitigations</span>
-                {loading && <div className="tm-step-status">Compiling report...</div>}
-              </div>
+    return (
+      <div className="threat-modeling-container">
+        <div className="tm-header">
+          <div className="tm-header-content">
+            <Brain size={40} className="tm-logo" />
+            <div>
+              <h1>AI-Powered Threat Modeling Assistant</h1>
+              <p>Analyzing your application for security threats...</p>
             </div>
+          </div>
+          {renderAIStatus()}
+        </div>
 
-            <button 
-              className="tm-btn-primary tm-btn-large"
-              onClick={generateThreats}
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <Loader className="spin" size={20} />
-                  {useEnhancedAnalysis && gitUrl ? 'Enhanced Analysis in Progress...' : 'AI Analysis in Progress...'}
-                </>
-              ) : (
-                <>
-                  <Zap size={20} />
-                  {useEnhancedAnalysis && gitUrl ? 'Start Enhanced Analysis' : 'Start AI Analysis'}
-                </>
-              )}
-            </button>
+        <div className="tm-wizard">
+          <div className="tm-wizard-steps">
+            <div className="tm-step completed">
+              <div className="tm-step-number"><CheckCircle size={20} /></div>
+              <div className="tm-step-label">System Info</div>
+            </div>
+            <div className="tm-step-line active"></div>
+            <div className="tm-step active">
+              <div className="tm-step-number">2</div>
+              <div className="tm-step-label">Analysis</div>
+            </div>
+            <div className="tm-step-line"></div>
+            <div className="tm-step">
+              <div className="tm-step-number">3</div>
+              <div className="tm-step-label">Results</div>
+            </div>
+          </div>
 
-            {loading && (
-              <div className="tm-analysis-tip">
-                <Brain size={16} />
-                <span>
-                  {useEnhancedAnalysis && gitUrl 
-                    ? "Analyzing ACTUAL code from repository - this provides 80% better accuracy than generic analysis" 
-                    : "This may take 40-55 seconds as our AI analyzes your tech stack..."}
-                </span>
+          <div className="tm-analysis-screen">
+            <div className="tm-analysis-card">
+              <Shield size={64} className="tm-analysis-icon pulse" />
+              <h2>Analyzing Security Posture</h2>
+              <p>
+                {scanType === 'advanced' && gitUrl 
+                  ? "AI is analyzing your ACTUAL codebase and checking for confirmed vulnerabilities..." 
+                  : loading 
+                    ? "AI is actively scanning your application..." 
+                    : "Ready to analyze your application architecture"}
+              </p>
+              
+              <div className="tm-progress-steps">
+                {scanType === 'advanced' && gitUrl && (
+                  <>
+                    <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
+                      {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon"><FileCode size={14} /></div>}
+                      <span>Fetching repository</span>
+                      {loading && <div className="tm-step-status">Using Repomix...</div>}
+                    </div>
+                    <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
+                      {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon"><Package size={14} /></div>}
+                      <span>Analyzing dependencies</span>
+                      {loading && <div className="tm-step-status">Checking OSV...</div>}
+                    </div>
+                  </>
+                )}
+                <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
+                  {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">1</div>}
+                  <span>Mapping attack surface</span>
+                  {loading && <div className="tm-step-status">Scanning code...</div>}
+                </div>
+                <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
+                  {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">2</div>}
+                  <span>Identifying threat vectors</span>
+                  {loading && <div className="tm-step-status">Analyzing patterns...</div>}
+                </div>
+                <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
+                  {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">3</div>}
+                  <span>Calculating risk scores</span>
+                  {loading && <div className="tm-step-status">Processing...</div>}
+                </div>
+                <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
+                  {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">4</div>}
+                  <span>Generating mitigations</span>
+                  {loading && <div className="tm-step-status">Compiling report...</div>}
+                </div>
               </div>
-            )}
+
+              <button 
+                className="tm-btn-primary tm-btn-large"
+                onClick={generateThreats}
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <Loader className="spin" size={20} />
+                    {scanType === 'advanced' && gitUrl ? 'Advanced Analysis in Progress...' : 'AI Analysis in Progress...'}
+                  </>
+                ) : (
+                  <>
+                    <Zap size={20} />
+                    {scanType === 'advanced' && gitUrl ? 'Start Advanced Analysis' : 'Start Analysis'}
+                  </>
+                )}
+              </button>
+
+              {loading && (
+                <div className="tm-analysis-tip">
+                  <Brain size={16} />
+                  <span>
+                    {scanType === 'advanced' && gitUrl 
+                      ? "Analyzing ACTUAL code from repository - this provides 80% better accuracy than generic analysis" 
+                      : "This may take 40-55 seconds as our AI analyzes your tech stack..."}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+
   return (
     <div className="threat-modeling-container">
       <div className="tm-header">
@@ -2009,11 +1956,16 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
           <Brain size={36} className="tm-logo" />
           <div>
             <h2>{systemInfo.appName} - Threat Model</h2>
-            <p>{usingAI ? 'AI-generated security analysis' : 'Static security analysis'} and recommendations</p>
-            {useEnhancedAnalysis && (
+            <p>
+              {usingAI 
+                ? scanType === 'advanced' ? 'Advanced security analysis with code review' : 'AI-generated security analysis'
+                : 'Static security analysis'} 
+              and recommendations
+            </p>
+            {scanType === 'advanced' && (
               <div className="tm-enhanced-badge">
                 <Package size={14} />
-                <span>Enhanced Analysis (Repomix + OSV)</span>
+                <span>Advanced Scan (Repomix + OSV)</span>
               </div>
             )}
           </div>
@@ -2026,16 +1978,6 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
           </button>
         </div>
       </div>
-
-      {realityCheck && (
-        <div className="tm-reality-check">
-          <AlertOctagon size={24} />
-          <div>
-            <h3>Reality Check</h3>
-            <p>{realityCheck}</p>
-          </div>
-        </div>
-      )}
 
       <div className="tm-dashboard">
         <div className="tm-stat-card critical">
@@ -2066,24 +2008,6 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
             <p>Risk Score</p>
           </div>
         </div>
-        {useEnhancedAnalysis && analysisSummary && (
-          <>
-            <div className="tm-stat-card confirmed">
-              <CheckCircle size={28} />
-              <div>
-                <h3>{analysisSummary.confirmedVulns}</h3>
-                <p>Confirmed Vulns</p>
-              </div>
-            </div>
-            <div className="tm-stat-card predicted">
-              <Brain size={28} />
-              <div>
-                <h3>{analysisSummary.predictedVulns}</h3>
-                <p>Predicted Vulns</p>
-              </div>
-            </div>
-          </>
-        )}
       </div>
 
       <div className="tm-ai-insight">
@@ -2117,44 +2041,11 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
           ))}
           <option value="Non-OWASP">Non-OWASP Issues</option>
         </select>
-        {useEnhancedAnalysis && (
-          <select onChange={(e) => {
-            if (e.target.value === 'confirmed') {
-              setFilterCategory('all');
-              setFilterSeverity('all');
-              setSearchQuery('[CONFIRMED]');
-            } else if (e.target.value === 'predicted') {
-              setFilterCategory('all');
-              setFilterSeverity('all');
-              setSearchQuery('[PREDICTED]');
-            }
-          }}>
-            <option value="">All Sources</option>
-            <option value="confirmed">Confirmed Only</option>
-            <option value="predicted">Predicted Only</option>
-          </select>
-        )}
       </div>
 
       <div className="tm-content-grid">
         <div className="tm-threats-panel">
           <h2>Identified Threats ({filteredThreats.length})</h2>
-          {useEnhancedAnalysis && analysisSummary && (
-            <div className="tm-analysis-summary">
-              <div className="tm-summary-item">
-                <strong>Confirmed Vulnerabilities:</strong> {analysisSummary.confirmedVulns}
-              </div>
-              <div className="tm-summary-item">
-                <strong>AI Predictions:</strong> {analysisSummary.predictedVulns}
-              </div>
-              <div className="tm-summary-item">
-                <strong>Tech Stack Match:</strong> {analysisSummary.techRealityMatch ? '✅ Matched' : '⚠️ Mismatch'}
-              </div>
-              <div className="tm-summary-item">
-                <strong>Code Analysis:</strong> ✅ Actual code analyzed via Repomix
-              </div>
-            </div>
-          )}
           <div className="tm-threats-list">
             {filteredThreats.map(threat => (
               <div key={threat.id} className="tm-threat-card">
@@ -2169,16 +2060,56 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                     </div>
                     <h3>{threat.title}</h3>
                     {threat.confirmed && (
-                      <div className="tm-source-badge confirmed">
-                        <CheckCircle size={12} />
-                        <span>CONFIRMED</span>
-                      </div>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        marginLeft: 'auto',
+                        marginRight: '16px',
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                        maxWidth: '180px',
+                        flexShrink: 0
+                      }}>
+                        <CheckCircle size={12} color={
+                          threat.source && threat.source.includes('OSV') 
+                            ? '#8b5cf6'
+                            : '#059669'
+                        } />
+                        <span style={{
+                          color: threat.source && threat.source.includes('OSV') 
+                            ? '#8b5cf6'
+                            : threat.source && threat.source.includes('Code Analysis')
+                              ? '#059669'
+                              : '#0284c7'
+                        }}>
+                          {threat.source && threat.source.includes('OSV') 
+                            ? 'Confirmed via OSV' 
+                            : threat.source && threat.source.includes('Code Analysis')
+                              ? 'Confirmed via Code Analysis'
+                              : 'Confirmed'}
+                        </span>
+                      </span>
                     )}
                     {!threat.confirmed && (
-                      <div className="tm-source-badge predicted">
-                        <Brain size={12} />
-                        <span>PREDICTED</span>
-                      </div>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        marginLeft: 'auto',
+                        marginRight: '16px',
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                        maxWidth: '180px',
+                        flexShrink: 0
+                      }}>
+                        <Brain size={12} color="#6b7280" />
+                        <span style={{ color: '#6b7280' }}>
+                          Predicted
+                        </span>
+                      </span>
                     )}
                   </div>
                   <div className="tm-threat-meta">
@@ -2263,63 +2194,62 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                     </div>
 
                     {threat.codeExample && (
-  <div className="tm-section">
-    <h4>Code Example</h4>
-    <div className="tm-code-examples">
-      <div className="tm-code-block vulnerable">
-        <div className="tm-code-header">
-          <XCircle size={16} />
-          <span>Vulnerable Code</span>
-          {/* ADD THIS LINE - File location */}
-          {threat.component && (
-            <span style={{ 
-              fontSize: '12px', 
-              color: '#666',
-              marginLeft: '8px',
-              fontFamily: 'monospace',
-              background: '#fee2e2',
-              padding: '2px 6px',
-              borderRadius: '4px'
-            }}>
-              📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
-              {threat.description && threat.description.match(/line\s+(\d+)/i) && 
-                `:${threat.description.match(/line\s+(\d+)/i)[1]}`
-              }
-            </span>
-          )}
-          <button onClick={() => copyCode(threat.codeExample.vulnerable, `vuln-${threat.id}`)}>
-            {copiedCode === `vuln-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
-          </button>
-        </div>
-        <pre><code>{threat.codeExample.vulnerable}</code></pre>
-      </div>
-      <div className="tm-code-block secure">
-        <div className="tm-code-header">
-          <CheckCircle size={16} />
-          <span>Secure Code</span>
-          {/* ADD THIS LINE - File location for secure code (same file) */}
-          {threat.component && (
-            <span style={{ 
-              fontSize: '12px', 
-              color: '#666',
-              marginLeft: '8px',
-              fontFamily: 'monospace',
-              background: '#dcfce7',
-              padding: '2px 6px',
-              borderRadius: '4px'
-            }}>
-              📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
-            </span>
-          )}
-          <button onClick={() => copyCode(threat.codeExample.secure, `secure-${threat.id}`)}>
-            {copiedCode === `secure-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
-          </button>
-        </div>
-        <pre><code>{threat.codeExample.secure}</code></pre>
-      </div>
-    </div>
-  </div>
-)}
+                      <div className="tm-section">
+                        <h4>Code Example</h4>
+                        <div className="tm-code-examples">
+                          <div className="tm-code-block vulnerable">
+                            <div className="tm-code-header">
+                              <XCircle size={16} />
+                              <span>Vulnerable Code</span>
+                              {threat.component && (
+                                <span style={{ 
+                                  fontSize: '12px', 
+                                  color: '#666',
+                                  marginLeft: '8px',
+                                  fontFamily: 'monospace',
+                                  background: '#fee2e2',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px'
+                                }}>
+                                  📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
+                                  {threat.description && threat.description.match(/line\s+(\d+)/i) && 
+                                    `:${threat.description.match(/line\s+(\d+)/i)[1]}`
+                                  }
+                                </span>
+                              )}
+                              <button onClick={() => copyCode(threat.codeExample.vulnerable, `vuln-${threat.id}`)}>
+                                {copiedCode === `vuln-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
+                              </button>
+                            </div>
+                            <pre><code>{threat.codeExample.vulnerable}</code></pre>
+                          </div>
+                          <div className="tm-code-block secure">
+                            <div className="tm-code-header">
+                              <CheckCircle size={16} />
+                              <span>Secure Code</span>
+                              {threat.component && (
+                                <span style={{ 
+                                  fontSize: '12px', 
+                                  color: '#666',
+                                  marginLeft: '8px',
+                                  fontFamily: 'monospace',
+                                  background: '#dcfce7',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px'
+                                }}>
+                                  📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
+                                </span>
+                              )}
+                              <button onClick={() => copyCode(threat.codeExample.secure, `secure-${threat.id}`)}>
+                                {copiedCode === `secure-${threat.id}` ? <Check size={16} /> : <Copy size={16} />}
+                              </button>
+                            </div>
+                            <pre><code>{threat.codeExample.secure}</code></pre>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="tm-section">
                       <h4>Testing Recommendations</h4>
                       <p>{threat.testing}</p>
@@ -2426,7 +2356,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                 <span>Est. Fix Time</span>
                 <strong>{threats.length * 2}h</strong>
               </div>
-              {useEnhancedAnalysis && (
+              {scanType === 'advanced' && (
                 <>
                   <div className="tm-stat-item">
                     <span>Confirmed Vulns</span>

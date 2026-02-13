@@ -10996,3 +10996,289 @@ box-shadow: 0 2px 8px rgba(0, 210, 255, 0.3);
     grid-template-columns: 1fr;
   }
 }
+
+/* Scan Selector Styles - Works for both light and dark themes */
+.tm-scan-selector {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 32px;
+  padding: 8px;
+}
+
+/* Light theme styles (default) - More subtle and clean */
+.tm-scan-btn {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Dark theme styles - True dark mode with grays */
+[data-theme="dark"] .tm-scan-btn {
+  background: #1f2937;
+  border: 1px solid #374151;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Subtle gradient line for both themes */
+.tm-scan-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  transform: translateX(-100%);
+  transition: transform 0.2s ease;
+}
+
+.tm-scan-btn:hover::before {
+  transform: translateX(0);
+}
+
+/* Light theme hover - Subtle */
+.tm-scan-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border-color: #d1d5db;
+}
+
+/* Dark theme hover - True dark mode */
+[data-theme="dark"] .tm-scan-btn:hover {
+  border-color: #4b5563;
+  background: #2d3748;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+}
+
+/* Light theme active state - Clean and subtle */
+.tm-scan-btn.active {
+  border-color: #3b82f6;
+  background: #f8fafc;
+  box-shadow: 0 2px 4px 0 rgba(59, 130, 246, 0.1);
+}
+
+/* Dark theme active state - Dark grays with blue accent */
+[data-theme="dark"] .tm-scan-btn.active {
+  background: #2d3748;
+  border-color: #60a5fa;
+  box-shadow: 0 2px 8px 0 rgba(96, 165, 250, 0.2);
+}
+
+.tm-scan-btn.active::before {
+  transform: translateX(0);
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+}
+
+/* Icons - light theme - Clean colors */
+.tm-scan-btn svg {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  transition: transform 0.2s ease;
+}
+
+.tm-scan-btn:first-child svg {
+  color: #10b981; /* Green */
+}
+
+.tm-scan-btn:last-child svg {
+  color: #8b5cf6; /* Purple */
+}
+
+/* Icons - dark theme - Muted but visible */
+[data-theme="dark"] .tm-scan-btn:first-child svg {
+  color: #34d399; /* Lighter green */
+}
+
+[data-theme="dark"] .tm-scan-btn:last-child svg {
+  color: #a78bfa; /* Lighter purple */
+}
+
+.tm-scan-btn:hover svg {
+  transform: scale(1.05);
+}
+
+/* Active icon states - light theme */
+.tm-scan-btn:first-child.active svg {
+  color: #059669; /* Darker green */
+}
+
+.tm-scan-btn:last-child.active svg {
+  color: #7c3aed; /* Darker purple */
+}
+
+/* Active icon states - dark theme */
+[data-theme="dark"] .tm-scan-btn:first-child.active svg {
+  color: #6ee7b7; /* Light green */
+}
+
+[data-theme="dark"] .tm-scan-btn:last-child.active svg {
+  color: #c4b5fd; /* Light purple */
+}
+
+/* Text styles - light theme */
+.tm-scan-btn h3 {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  letter-spacing: -0.01em;
+}
+
+.tm-scan-btn p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.tm-scan-btn.active p {
+  color: #4b5563;
+}
+
+/* Text styles - dark theme */
+[data-theme="dark"] .tm-scan-btn h3 {
+  color: #f3f4f6;
+}
+
+[data-theme="dark"] .tm-scan-btn p {
+  color: #9ca3af;
+}
+
+[data-theme="dark"] .tm-scan-btn.active p {
+  color: #d1d5db;
+}
+
+/* Subtle pulse animation for light theme */
+@keyframes gentle-pulse-light {
+  0% {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.2);
+  }
+  70% {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+  }
+  100% {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+/* Subtle pulse animation for dark theme */
+@keyframes gentle-pulse-dark {
+  0% {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.3);
+  }
+  70% {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 6px rgba(96, 165, 250, 0);
+  }
+  100% {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+  }
+}
+
+/* Apply pulse animations - more subtle */
+.tm-scan-btn.active {
+  animation: gentle-pulse-light 2.5s infinite;
+}
+
+[data-theme="dark"] .tm-scan-btn.active {
+  animation: gentle-pulse-dark 2.5s infinite;
+}
+
+/* Responsive styles - work for both themes */
+@media (max-width: 768px) {
+  .tm-scan-selector {
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px;
+  }
+  
+  .tm-scan-btn {
+    padding: 18px;
+  }
+  
+  .tm-scan-btn h3 {
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+  
+  .tm-scan-btn p {
+    font-size: 12px;
+  }
+  
+  .tm-scan-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* Focus states for accessibility */
+.tm-scan-btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+[data-theme="dark"] .tm-scan-btn:focus-visible {
+  outline-color: #60a5fa;
+}
+
+/* Disabled state if needed */
+.tm-scan-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Optional: Add a very subtle background on hover for dark theme */
+[data-theme="dark"] .tm-scan-btn:hover {
+  background: #2d3748;
+}
+
+/* Ensure text remains readable in dark theme */
+[data-theme="dark"] .tm-scan-btn.active h3 {
+  color: #ffffff;
+}
+
+/* Specific fix for Git Repository URL hint text spacing */
+.tm-input-group:has(label svg) .tm-input-hint {
+  margin-top: 12px !important;
+  font-size: 14px;
+}
+
+/* Light theme */
+.tm-input-group:has(label svg) .tm-input-hint {
+  color: #718096;
+}
+
+/* Dark theme */
+[data-theme="dark"] .tm-input-group:has(label svg) .tm-input-hint {
+  color: #a0aec0;
+  margin-top: 12px !important;
+}
+
+/* Ensure the Git icon looks good */
+.tm-input-group label svg {
+  color: #667eea;
+}
+
+[data-theme="dark"] .tm-input-group label svg {
+  color: #9f7aea;
+}
+
