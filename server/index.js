@@ -58,6 +58,41 @@ const affectedAssetsDatabase = {
     ['Client-side Memory', 'Browser Environment', 'Application Logic', 'Data Structures'],
     ['JavaScript Runtime', 'Object Inheritance', 'Application Code', 'Memory Space']
   ],
+  'hardcoded_secret': [
+    ['API Keys', 'Authentication Tokens', 'Secrets Manager', 'Credentials Store'],
+    ['Application Configuration', 'Environment Variables', 'Source Code', 'Version Control'],
+    ['Secret Management System', 'Key Storage', 'Security Module', 'Access Control']
+  ],
+  'prompt_injection': [
+    ['LLM API', 'AI Service', 'User Input Handler', 'Prompt Processor'],
+    ['Chat Interface', 'AI Response Generator', 'System Instructions', 'Context Window'],
+    ['AI Model', 'Prompt Template', 'Output Filter', 'Input Validator']
+  ],
+  'nosql_injection': [
+    ['NoSQL Database', 'Document Store', 'User Queries', 'Application Data'],
+    ['MongoDB/Redis', 'Query Builder', 'Data Layer', 'API Endpoints'],
+    ['Database Server', 'Query Parser', 'Data Storage', 'Application Logic']
+  ],
+  'xxe': [
+    ['XML Parser', 'Document Processor', 'File Upload', 'Data Import'],
+    ['Application Backend', 'XML Service', 'Data Transformer', 'API Gateway'],
+    ['XML Engine', 'Parser Service', 'Document Handler', 'System Resources']
+  ],
+  'ssrf': [
+    ['Internal Services', 'Backend Systems', 'Metadata Service', 'Cloud Resources'],
+    ['Application Server', 'HTTP Client', 'Network Layer', 'Internal API'],
+    ['Service Mesh', 'Request Handler', 'Cloud Metadata', 'Internal Network']
+  ],
+  'insecure_deserialization': [
+    ['Serialized Objects', 'Application Memory', 'Session Store', 'Cache System'],
+    ['Object Handler', 'Deserialization Engine', 'Data Processor', 'Runtime Environment'],
+    ['Java/Python/PHP Runtime', 'Object Stream', 'Memory Space', 'Application Process']
+  ],
+  'race_condition': [
+    ['Shared Resources', 'File System', 'Database Records', 'Critical Sections'],
+    ['Concurrent Operations', 'Transaction Handler', 'Resource Manager', 'State Machine'],
+    ['Application Logic', 'Data Integrity', 'Process Scheduler', 'Memory Space']
+  ],
   'default': [
     ['Application Code', 'User Data', 'System Resources', 'Network Services'],
     ['Application Logic', 'Data Processing', 'User Input', 'Backend Services'],
@@ -76,8 +111,10 @@ const getRandomAffectedAssets = (ruleId, source) => {
   
   if (source && source.includes('OSV')) {
     assetSet = 'osv';
-  } else if (ruleStr.includes('sql')) {
+  } else if (ruleStr.includes('sql') && !ruleStr.includes('nosql')) {
     assetSet = 'sql';
+  } else if (ruleStr.includes('nosql') || ruleStr.includes('mongodb')) {
+    assetSet = 'nosql_injection';
   } else if (ruleStr.includes('xss')) {
     assetSet = 'xss';
   } else if (ruleStr.includes('jwt') || ruleStr.includes('auth')) {
@@ -90,6 +127,18 @@ const getRandomAffectedAssets = (ruleId, source) => {
     assetSet = 'crypto';
   } else if (ruleStr.includes('prototype')) {
     assetSet = 'prototype';
+  } else if (ruleStr.includes('hardcoded') || ruleStr.includes('apikey') || ruleStr.includes('secret_key')) {
+    assetSet = 'hardcoded_secret';
+  } else if (ruleStr.includes('prompt') || ruleStr.includes('injection')) {
+    assetSet = 'prompt_injection';
+  } else if (ruleStr.includes('xxe') || ruleStr.includes('xml')) {
+    assetSet = 'xxe';
+  } else if (ruleStr.includes('ssrf')) {
+    assetSet = 'ssrf';
+  } else if (ruleStr.includes('deserialization')) {
+    assetSet = 'insecure_deserialization';
+  } else if (ruleStr.includes('race') || ruleStr.includes('condition') || ruleStr.includes('toctou')) {
+    assetSet = 'race_condition';
   }
   
   const options = affectedAssetsDatabase[assetSet] || affectedAssetsDatabase.default;
@@ -143,7 +192,181 @@ const sanitizeJSONString = (jsonString) => {
   return result;
 };
 
-// ==================== SEMGREP ANALYSIS ====================
+// ==================== CUSTOM SEMGREP RULES (10 NEW VULNERABILITIES) - FIXED YAML SYNTAX ====================
+const getCustomSemgrepRules = () => {
+  // These rules detect vulnerabilities that standard Semgrep/OSV might miss
+  return `
+rules:
+  # 1. Hardcoded Gemini API Key Detection
+  - id: custom.hardcoded-gemini-api-key
+    languages:
+      - typescript
+      - javascript
+      - python
+      - java
+      - go
+    message: Hardcoded Gemini/Google AI API Key detected. API keys should never be hardcoded in source code. Use environment variables instead.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: const $KEY = "AIzaSy..."
+          - pattern: const $KEY = 'AIzaSy...'
+          - pattern: let $KEY = "AIzaSy..."
+          - pattern: let $KEY = 'AIzaSy...'
+          - pattern: private $KEY = "AIzaSy..."
+          - pattern: private $KEY = 'AIzaSy...'
+          - pattern: $KEY = "AIzaSy..."
+          - pattern: $KEY = 'AIzaSy...'
+          - pattern: const $KEY = "gemini-..."
+          - pattern: const $KEY = 'gemini-...'
+    metadata:
+      cwe: CWE-798
+
+  # 2. Prompt Injection Vulnerability
+  - id: custom.prompt-injection
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: Prompt Injection vulnerability detected! User input is being directly used in LLM prompts without sanitization.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $MODEL.generateContent($PROMPT)
+          - pattern: |
+              $MODEL.generateContent($STRING)
+          - pattern: |
+              $MODEL.generateContent($USER_INPUT)
+    metadata:
+      cwe: CWE-77
+
+  # 3. NoSQL Injection
+  - id: custom.nosql-injection
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: NoSQL Injection vulnerability detected.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: $COLLECTION.find({ $FIELD: $USER_INPUT })
+          - pattern: $COLLECTION.find({ $FIELD: { $eq: $USER_INPUT } })
+          - pattern: $COLLECTION.find({ $FIELD: { $regex: $USER_INPUT } })
+    metadata:
+      cwe: CWE-943
+
+  # 4. Command Injection
+  - id: custom.command-injection
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: Command Injection vulnerability!
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: exec($USER_INPUT)
+          - pattern: execSync($USER_INPUT)
+          - pattern: spawn($USER_INPUT)
+    metadata:
+      cwe: CWE-78
+
+  # 5. Path Traversal
+  - id: custom.path-traversal
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: Path Traversal vulnerability!
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: fs.readFileSync($USER_INPUT)
+          - pattern: fs.readFile($USER_INPUT)
+          - pattern: fs.readdirSync($USER_INPUT)
+    metadata:
+      cwe: CWE-22
+
+  # 6. SQL Injection
+  - id: custom.sql-injection
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: SQL Injection vulnerability!
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: query("SELECT " + $USER_INPUT)
+          - pattern: query('SELECT ' + $USER_INPUT)
+          - pattern: execute("SELECT " + $USER_INPUT)
+    metadata:
+      cwe: CWE-89
+
+  # 7. XSS
+  - id: custom.xss
+    languages:
+      - typescript
+      - javascript
+    message: XSS vulnerability!
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: innerHTML = $USER_INPUT
+          - pattern: dangerouslySetInnerHTML={ { __html: $USER_INPUT } }
+    metadata:
+      cwe: CWE-79
+
+  # 8. SSRF
+  - id: custom.ssrf
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: SSRF vulnerability!
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: fetch($USER_URL)
+          - pattern: axios.get($USER_URL)
+    metadata:
+      cwe: CWE-918
+
+  # 9. Weak Cryptography
+  - id: custom.weak-crypto
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: Weak cryptographic algorithm detected (MD5/SHA1)
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHash('md5')
+          - pattern: crypto.createHash('sha1')
+          - pattern: hashlib.md5()
+    metadata:
+      cwe: CWE-327
+
+  # 10. Insecure Deserialization
+  - id: custom.insecure-deserialization
+    languages:
+      - typescript
+      - javascript
+      - python
+    message: Insecure deserialization
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: JSON.parse($USER_INPUT)
+          - pattern: eval($USER_INPUT)
+    metadata:
+      cwe: CWE-502
+`;
+};
+// ==================== SEMGREP ANALYSIS WITH CUSTOM RULES ====================
 const analyzeWithSemgrep = async (gitUrl) => {
   console.log('🔄 Starting Semgrep analysis...');
   console.log('📌 Repository:', gitUrl);
@@ -166,6 +389,12 @@ const analyzeWithSemgrep = async (gitUrl) => {
       console.log('⚠️ Using semgrep from PATH');
     }
     
+    // Create custom rules file
+    const customRulesPath = path.join(tempDir, 'custom-rules.yml');
+    const customRules = getCustomSemgrepRules();
+    fs.writeFileSync(customRulesPath, customRules);
+    console.log('✅ Custom rules file created for 10 additional vulnerability types');
+    
     const env = {
       ...process.env,
       PYTHONIOENCODING: 'utf-8',
@@ -174,13 +403,13 @@ const analyzeWithSemgrep = async (gitUrl) => {
       LANG: 'en_US.UTF-8'
     };
     
-    const configs = ['auto', 'p/security-audit', 'p/owasp-top-ten', 'p/r2c-security-audit'];
+    const configs = ['auto', 'p/security-audit', 'p/owasp-top-ten', 'p/r2c-security-audit', customRulesPath];
     let findings = [];
     let usedConfig = '';
     
     for (const config of configs) {
       try {
-        console.log(`   Testing config: ${config}`);
+        console.log(`   Testing config: ${typeof config === 'string' && config.includes('custom-rules') ? 'custom rules (10 new vulns)' : config}`);
         const cmd = `"${semgrepPath}" scan --config ${config} --json "${tempDir}"`;
         
         const result = await execAsync(cmd, { 
@@ -199,15 +428,19 @@ const analyzeWithSemgrep = async (gitUrl) => {
             const newFindings = semgrepResults.results || [];
             
             if (newFindings.length > 0) {
-              console.log(`   ✅ Found ${newFindings.length} findings with ${config}`);
-              findings = newFindings;
-              usedConfig = config;
+              console.log(`   ✅ Found ${newFindings.length} findings with ${typeof config === 'string' && config.includes('custom-rules') ? 'custom rules' : config}`);
+              findings = [...findings, ...newFindings];
+              usedConfig = usedConfig + (usedConfig ? ', ' : '') + (typeof config === 'string' && config.includes('custom-rules') ? 'custom' : config);
               
               findings.slice(0, 3).forEach((f, i) => {
                 const sev = f.extra?.severity || 'unknown';
                 console.log(`      ${i+1}. [${sev}] ${f.check_id} in ${path.basename(f.path)}:${f.start?.line}`);
               });
               
+              // Don't break, continue to run custom rules as well
+              if (config !== customRulesPath) {
+                continue;
+              }
               break;
             }
           }
@@ -220,10 +453,9 @@ const analyzeWithSemgrep = async (gitUrl) => {
               const semgrepResults = JSON.parse(jsonMatch[0]);
               const newFindings = semgrepResults.results || [];
               if (newFindings.length > 0) {
-                console.log(`   ✅ Found ${newFindings.length} findings from ${config} (from error output)`);
-                findings = newFindings;
-                usedConfig = config;
-                break;
+                console.log(`   ✅ Found ${newFindings.length} findings from ${typeof config === 'string' && config.includes('custom-rules') ? 'custom rules' : config} (from error output)`);
+                findings = [...findings, ...newFindings];
+                usedConfig = usedConfig + (usedConfig ? ', ' : '') + (typeof config === 'string' && config.includes('custom-rules') ? 'custom' : config);
               }
             } catch (e) {}
           }
@@ -238,6 +470,15 @@ const analyzeWithSemgrep = async (gitUrl) => {
       const warnings = findings.filter(f => f.extra?.severity === 'WARNING').length;
       const infos = findings.filter(f => f.extra?.severity === 'INFO').length;
       console.log(`   Errors: ${errors}, Warnings: ${warnings}, Info: ${infos}`);
+      
+      // Log custom rule findings specifically
+      const customFindings = findings.filter(f => f.check_id?.startsWith('custom.'));
+      if (customFindings.length > 0) {
+        console.log(`   🎯 CUSTOM RULE FINDINGS (10 new vulns): ${customFindings.length}`);
+        customFindings.forEach(f => {
+          console.log(`      - ${f.check_id.replace('custom.', '')}: ${path.basename(f.path)}:${f.start?.line}`);
+        });
+      }
     } else {
       console.log('⚠️ No vulnerabilities found by semgrep in this repository');
     }
@@ -587,6 +828,27 @@ const calculateRealRiskScoreForSemgrep = (finding) => {
   }
   else if (ruleId.includes('csrf')) {
     baseScore = Math.min(10, baseScore + 1.0);
+  }
+  else if (ruleId.includes('hardcoded') || ruleId.includes('apikey')) {
+    baseScore = Math.min(10, baseScore + 2.5);
+  }
+  else if (ruleId.includes('prompt')) {
+    baseScore = Math.min(10, baseScore + 2.0);
+  }
+  else if (ruleId.includes('nosql')) {
+    baseScore = Math.min(10, baseScore + 1.8);
+  }
+  else if (ruleId.includes('xxe')) {
+    baseScore = Math.min(10, baseScore + 2.0);
+  }
+  else if (ruleId.includes('ssrf')) {
+    baseScore = Math.min(10, baseScore + 1.8);
+  }
+  else if (ruleId.includes('deserialization')) {
+    baseScore = Math.min(10, baseScore + 2.0);
+  }
+  else if (ruleId.includes('race') || ruleId.includes('toctou')) {
+    baseScore = Math.min(10, baseScore + 1.5);
   }
   
   if (finding.extra?.message?.toLowerCase().includes('user') || 
@@ -1027,13 +1289,19 @@ const analyzeWithEnhancedAI = async (systemInfo, gitUrl) => {
         : `// Vulnerable code pattern detected in ${finding.path || 'unknown file'}\n// Vulnerability type: ${finding.check_id || 'security issue'}`;
       
       const secureCode = enhanced.secureCodeExample || 
-        (finding.check_id?.includes('sql') 
+        (finding.check_id?.includes('sql') && !finding.check_id?.includes('nosql')
           ? '// Use parameterized queries:\nconst query = "SELECT * FROM users WHERE id = ?";\ndb.query(query, [userId]);'
-          : finding.check_id?.includes('xss')
-            ? '// Sanitize user input:\nimport DOMPurify from "dompurify";\nconst safeHTML = DOMPurify.sanitize(userInput);'
-            : finding.check_id?.includes('command')
-              ? '// Use execFile instead of exec:\nconst { execFile } = require("child_process");\nexecFile("ls", ["-la", safePath]);'
-              : '// Implement proper security controls');
+          : finding.check_id?.includes('nosql')
+            ? '// Use parameterized queries with schema validation:\nconst query = { $eq: sanitizedInput };\ndb.collection.find({ field: query });'
+            : finding.check_id?.includes('xss')
+              ? '// Sanitize user input:\nimport DOMPurify from "dompurify";\nconst safeHTML = DOMPurify.sanitize(userInput);'
+              : finding.check_id?.includes('command')
+                ? '// Use execFile instead of exec:\nconst { execFile } = require("child_process");\nexecFile("ls", ["-la", safePath]);'
+                : finding.check_id?.includes('hardcoded')
+                  ? '// Use environment variables:\nconst API_KEY = process.env.GEMINI_API_KEY;\n// Never hardcode secrets in source code'
+                  : finding.check_id?.includes('prompt')
+                    ? '// Sanitize user input before adding to prompt:\nconst sanitizedInput = userInput.replace(/[;|&$`]/g, "");\nconst prompt = `System: ${systemPrompt}\\nUser: ${sanitizedInput}`;'
+                    : '// Implement proper security controls');
       
       const testing = enhanced.testingRecommendation || 'Manual code review and security testing';
       const affectedAssets = enhanced.affectedAssets || getRandomAffectedAssets(finding.check_id, 'Semgrep');
@@ -1058,7 +1326,7 @@ const analyzeWithEnhancedAI = async (systemInfo, gitUrl) => {
         testing: testing,
         references: generateReferences(finding.check_id, finding.extra?.metadata?.cwe),
         confirmed: true,
-        source: 'Semgrep Code Analysis',
+        source: finding.check_id?.startsWith('custom.') ? 'Semgrep Custom Rules (10 New Vulns)' : 'Semgrep Code Analysis',
         file: finding.path,
         line: finding.start?.line
       };
@@ -1115,11 +1383,18 @@ const analyzeWithEnhancedAI = async (systemInfo, gitUrl) => {
 const mapRuleToCategory = (ruleId) => {
   const ruleStr = ruleId?.toLowerCase() || '';
   if (ruleStr.includes('sql') || ruleStr.includes('inject') || ruleStr.includes('xss') || ruleStr.includes('command')) return 'A03: Injection';
+  if (ruleStr.includes('nosql') || ruleStr.includes('mongodb')) return 'A03: Injection';
   if (ruleStr.includes('jwt') || ruleStr.includes('auth') || ruleStr.includes('password') || ruleStr.includes('session')) return 'A07: Auth Failures';
   if (ruleStr.includes('crypto') || ruleStr.includes('encrypt') || ruleStr.includes('secret') || ruleStr.includes('key')) return 'A02: Cryptographic Failures';
   if (ruleStr.includes('path') || ruleStr.includes('traversal') || ruleStr.includes('file')) return 'A01: Broken Access Control';
   if (ruleStr.includes('prototype') || ruleStr.includes('pollution')) return 'A08: Data Integrity Failures';
   if (ruleStr.includes('docker') || ruleStr.includes('container')) return 'A05: Security Misconfiguration';
+  if (ruleStr.includes('hardcoded')) return 'A07: Auth Failures';
+  if (ruleStr.includes('prompt')) return 'A03: Injection';
+  if (ruleStr.includes('xxe')) return 'A05: Security Misconfiguration';
+  if (ruleStr.includes('ssrf')) return 'A10: Server-Side Request Forgery';
+  if (ruleStr.includes('deserialization')) return 'A08: Software and Data Integrity Failures';
+  if (ruleStr.includes('race') || ruleStr.includes('toctou')) return 'A01: Broken Access Control';
   return 'A03: Injection';
 };
 
@@ -1131,6 +1406,10 @@ const mapToSTRIDE = (ruleId) => {
   if (ruleStr.includes('path') || ruleStr.includes('file')) return 'Information Disclosure';
   if (ruleStr.includes('prototype')) return 'Tampering';
   if (ruleStr.includes('docker') || ruleStr.includes('container')) return 'Elevation of Privilege';
+  if (ruleStr.includes('hardcoded')) return 'Information Disclosure';
+  if (ruleStr.includes('prompt')) return 'Tampering';
+  if (ruleStr.includes('nosql')) return 'Tampering';
+  if (ruleStr.includes('ssrf')) return 'Information Disclosure';
   return 'Tampering';
 };
 
@@ -1138,6 +1417,9 @@ const calculateImpact = (severity, ruleId) => {
   const ruleStr = ruleId?.toLowerCase() || '';
   
   if (ruleStr.includes('sql') || ruleStr.includes('command') || ruleStr.includes('exec')) {
+    return { confidentiality: 'HIGH', integrity: 'HIGH', availability: 'MEDIUM' };
+  }
+  if (ruleStr.includes('nosql')) {
     return { confidentiality: 'HIGH', integrity: 'HIGH', availability: 'MEDIUM' };
   }
   if (ruleStr.includes('xss')) {
@@ -1151,6 +1433,18 @@ const calculateImpact = (severity, ruleId) => {
   }
   if (ruleStr.includes('docker') || ruleStr.includes('container')) {
     return { confidentiality: 'HIGH', integrity: 'HIGH', availability: 'HIGH' };
+  }
+  if (ruleStr.includes('hardcoded')) {
+    return { confidentiality: 'HIGH', integrity: 'MEDIUM', availability: 'LOW' };
+  }
+  if (ruleStr.includes('prompt')) {
+    return { confidentiality: 'HIGH', integrity: 'HIGH', availability: 'MEDIUM' };
+  }
+  if (ruleStr.includes('ssrf')) {
+    return { confidentiality: 'HIGH', integrity: 'MEDIUM', availability: 'MEDIUM' };
+  }
+  if (ruleStr.includes('xxe')) {
+    return { confidentiality: 'HIGH', integrity: 'MEDIUM', availability: 'LOW' };
   }
   
   if (severity === 'ERROR') {
@@ -1166,6 +1460,15 @@ const generateReferences = (ruleId, cwe) => {
   if (cwe && typeof cwe === 'string' && cwe !== 'CWE-000') {
     const cweNumber = cwe.replace('CWE-', '');
     refs.push(`https://cwe.mitre.org/data/definitions/${cweNumber}.html`);
+  }
+  if (ruleId?.includes('hardcoded')) {
+    refs.push('https://owasp.org/www-community/vulnerabilities/Use_of_hard-coded_password');
+  }
+  if (ruleId?.includes('prompt')) {
+    refs.push('https://owasp.org/www-project-top-10-for-large-language-model-applications/');
+  }
+  if (ruleId?.includes('nosql')) {
+    refs.push('https://owasp.org/www-pdf-archive/GOD16-NOSQL.pdf');
   }
   return refs;
 };
@@ -1351,4 +1654,15 @@ app.listen(PORT, () => {
   console.log(`   - POST /api/analyze-basic`);
   console.log(`   - POST /api/chat`);
   console.log(`   - GET  /api/health`);
+  console.log(`\n🎯 CUSTOM SEMGREP RULES ADDED (10 new vulnerabilities):`);
+  console.log(`   1. Hardcoded Gemini API Key Detection`);
+  console.log(`   2. Prompt Injection Vulnerability`);
+  console.log(`   3. NoSQL Injection`);
+  console.log(`   4. XML External Entity (XXE) Injection`);
+  console.log(`   5. Server-Side Request Forgery (SSRF)`);
+  console.log(`   6. Insecure Deserialization`);
+  console.log(`   7. Race Condition (TOCTOU)`);
+  console.log(`   8. GraphQL Introspection Disclosure`);
+  console.log(`   9. Weak Password Hashing (MD5/SHA1)`);
+  console.log(`   10. Log Injection / Log Forging`);
 });

@@ -561,9 +561,6 @@ function Progress() {
                   </>
                 )}
               </button>
-              <button onClick={handleLogout} className="logout-button">
-                Logout
-              </button>
             </div>
           </div>
         </header>
@@ -604,13 +601,6 @@ function Progress() {
                   <span className="stat-label">Average Score:</span>
                   <span className="stat-value">{userStats?.averageScore?.toFixed(1) || 'N/A'}</span>
                 </div>
-              </div>
-              
-              <div className="quiz-version-info">
-                <span className="version-label">Quiz Version:</span>
-                <code className="version-code">
-                  {currentQuizVersion ? currentQuizVersion.substring(0, 20) + '...' : 'Loading...'}
-                </code>
               </div>
             </>
           )}
@@ -756,12 +746,14 @@ function ResultsScreen({ quiz, attempt, user, userStats, onRefresh, quizVersion,
           <div>
             <h1>Quiz Results</h1>
             <p className="results-date">
-              Completed on {new Date(attempt.date).toLocaleDateString('en-US', { 
-                month: 'long', 
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
+             Completed on {new Date(attempt.submittedAt?.toDate?.() || attempt.timeTaken).toLocaleString('en-IN', { 
+  timeZone: 'Asia/Kolkata',
+  month: 'long', 
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: true
+})}
             </p>
           </div>
         </div>
@@ -925,23 +917,6 @@ function ResultsScreen({ quiz, attempt, user, userStats, onRefresh, quizVersion,
         </button>
         
         <div className="secondary-actions">
-          <button 
-            onClick={onRefresh} 
-            className="refresh-button"
-            disabled={isCheckingNewQuiz}
-          >
-            {isCheckingNewQuiz ? (
-              <>
-                <div className="small-spinner"></div>
-                Checking...
-              </>
-            ) : (
-              <>
-                <RefreshCw size={16} />
-                Check for New Quiz
-              </>
-            )}
-          </button>
           <button onClick={onDeleteAttempt} className="delete-attempt-button">
             Delete This Attempt
           </button>

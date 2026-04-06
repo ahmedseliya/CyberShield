@@ -11282,3 +11282,97 @@ box-shadow: 0 2px 8px rgba(0, 210, 255, 0.3);
   color: #9f7aea;
 }
 
+.results-title {
+  display: flex;
+  align-items: center;
+  gap: 16px; /* space between shield icon and text */
+}
+ 
+.results-title svg {
+  flex-shrink: 0;
+}
+ 
+.results-title div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+ 
+/* --- Back to Quiz Dashboard button --- */
+.home-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 28px;
+  background-color: #3b82f6;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+ 
+.home-button:hover {
+  background-color: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.45);
+}
+ 
+.home-button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+ 
+/* --- Delete This Attempt button --- */
+.delete-attempt-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 22px;
+  background-color: transparent;
+  color: #ef4444;
+  border: 1.5px solid #ef4444;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+ 
+.delete-attempt-button:hover {
+  background-color: #ef4444;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+ 
+.delete-attempt-button:active {
+  transform: translateY(0);
+  background-color: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+ 
+.results-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;   
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 32px;
+  padding: 0 4px;
+  position: relative;       
+}
+
+.secondary-actions {
+  position: absolute;        
+  right: 0;                  
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}

@@ -441,7 +441,6 @@ const OWASPAttackSimulator = () => {
                   {scenario.difficulty}
                 </span>
               </div>
-              <p className="scenario-id">ID: {scenario.id}</p>
               
               <div className="role-buttons">
                 <button 
