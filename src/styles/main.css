@@ -9735,7 +9735,7 @@ box-shadow: 0 2px 8px rgba(0, 210, 255, 0.3);
 
 /* Remove any existing error message styles */
 .error-message {
-    display: none;
+   
 }
 
 .floating-error {

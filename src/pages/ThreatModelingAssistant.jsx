@@ -1,927 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Shield, Brain, AlertTriangle, CheckCircle, XCircle, Download, Loader, Send, Zap, Target, Lock, Database, Cloud, Code, FileText, BarChart3, TrendingUp, MessageSquare, Search, Filter, ChevronDown, ChevronRight, ExternalLink, Copy, Check, GitBranch, Package, AlertOctagon, FileCode } from 'lucide-react';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
-
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY_ThreatModel;
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-const CLOUDFLARE_PROXY_URL = import.meta.env.VITE_CLOUDFLARE_PROXY_URL;
-
-const analyzeWithEnhancedAI = async (systemInfo, gitUrl) => {
-  try {
-    console.log('🔄 Starting enhanced AI analysis with Repomix + OSV...');
-    console.log('📌 Repository:', gitUrl);
-
-    const repoData = await getRepomixDigest(gitUrl);
-    
-    console.log('📋 Repomix analysis completed');
-    console.log('📦 Dependencies found:', repoData.dependencies.length);
-    console.log('📁 Files analyzed:', repoData.fileCount);
-    console.log('📄 Total code size:', repoData.rawText.length, 'characters');
-    
-    const hasUsefulData = repoData.dependencies.length > 0 || 
-                         repoData.fileCount > 0;
-    
-    if (!hasUsefulData) {
-      console.warn('⚠️ Repomix returned limited data.');
-    }
-    
-    let osvResults = { vulnerabilities: [], summary: 'No dependencies to check' };
-    if (repoData.dependencies.length > 0) {
-      console.log('🔍 Checking OSV for', repoData.dependencies.length, 'dependencies...');
-      try {
-        osvResults = await checkOSVVulnerabilities(repoData.dependencies);
-        console.log('📊 OSV Results:', osvResults.vulnerabilities.length, 'vulnerabilities found');
-      } catch (osvError) {
-        console.warn('OSV check failed:', osvError.message);
-        osvResults = { 
-          vulnerabilities: [], 
-          summary: `OSV check failed: ${osvError.message}` 
-        };
-      }
-    } else {
-      console.log('⏭️ Skipping OSV check - no dependencies found');
-    }
-    
-    console.log('🤖 Generating enhanced AI analysis...');
-    const enhancedResponse = await callEnhancedGeminiAPI(systemInfo, repoData, osvResults);
-    return enhancedResponse;
-  } catch (error) {
-    console.warn('⚠️ Enhanced analysis failed, falling back to basic AI:', error.message);
-    
-    // FIX: Use the SAME pattern as first code
-    const basicResponse = await analyzeWithAI(systemInfo);
-    
-    return {
-      ...basicResponse,
-      realityCheck: `Enhanced analysis failed: ${error.message}. Using basic AI analysis instead.`,
-      analysisSummary: {
-        confirmedVulns: 0,
-        predictedVulns: basicResponse.threats.length,
-        techRealityMatch: false,
-        keyFindings: ['Enhanced analysis failed']
-      }
-    };
-  }
-};
-
-const getRepomixDigest = async (gitUrl) => {
-  try {
-    console.log('🔍 Fetching repository via Repomix Bridge:', gitUrl);
-    
-    const proxyUrl = `${CLOUDFLARE_PROXY_URL}`;
-    
-    console.log('🔍 Using proxy URL:', proxyUrl);
-    
-    const requestBody = {
-      url: gitUrl.trim(),
-      format: 'text',
-      include: 'code',
-      excludePatterns: ['node_modules', 'dist', 'build', '.git', 'coverage', '*.log', '*.lock'],
-      maxSize: 500000,
-    };
-    
-    console.log('📤 Sending request to Repomix Bridge...');
-    
-    const response = await fetch(proxyUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
-    });
-    
-    console.log('📥 Response status:', response.status);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Repomix Bridge error:', errorText);
-      throw new Error(`Repomix Bridge error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    
-    if (!result.success) {
-      throw new Error(result.error || 'Repomix analysis failed');
-    }
-    
-    console.log('✅ Repomix Bridge response received');
-    console.log('📊 Files analyzed:', result.fileCount);
-    console.log('📦 Dependencies found:', result.dependencies ? result.dependencies.length : 0);
-    console.log('📄 Code size:', result.rawText ? result.rawText.length : 0, 'characters');
-    
-    const fileStructure = extractFilesFromRepomix(result.rawText || '');
-    const summary = generateSummaryFromCode(result.rawText || '', result.fileCount || 0);
-    
-    return {
-      rawText: result.rawText || '',
-      dependencies: result.dependencies || [],
-      fileStructure: fileStructure,
-      fileCount: result.fileCount || 0,
-      summary: summary
-    };
-    
-  } catch (error) {
-    console.error('❌ Repomix Bridge failed:', error);
-    throw error; // Throw to trigger fallback
-  }
-};
-
-const extractFilesFromRepomix = (rawText) => {
-  if (!rawText) return [];
-  
-  const files = [];
-  const lines = rawText.split('\n');
-  
-  for (const line of lines) {
-    const fileMatch = line.match(/File:\s*(.+)/i);
-    if (fileMatch) {
-      const fileName = fileMatch[1].trim();
-      if (fileName && !fileName.includes('node_modules') && !fileName.includes('.git/')) {
-        files.push(fileName);
-      }
-    }
-  }
-  
-  return files;
-};
-
-const filterSecurityCriticalFiles = (rawText) => {
-  console.log('🔍 Filtering security-critical files...');
-  
-  const lines = rawText.split('\n');
-  let filteredLines = [];
-  let currentFile = null;
-  let isSecurityCritical = false;
-  let securityFilesCount = 0;
-  
-  const SECURITY_FILE_PATTERNS = [
-    /package\.json/i,
-    /requirements\.txt/i,
-    /composer\.json/i,
-    /pom\.xml/i,
-    /build\.gradle/i,
-    /\.env/i,
-    /config\./i,
-    /security\./i,
-    /auth/i,
-    /middleware/i,
-    /routes?\./i,
-    /controllers?\./i,
-    /api\./i,
-    /server\./i,
-    /app\./i,
-    /main\./i,
-    /index\./i,
-    /dockerfile/i,
-    /\.config\.js/i,
-    /webpack\.config/i,
-    /\.eslintrc/i,
-    /\.prettierrc/i
-  ];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    if (line.startsWith('File: ') || line.includes('────────────────')) {
-      const fileMatch = line.match(/File:\s*(.+)/i);
-      if (fileMatch) {
-        const fileName = fileMatch[1].trim();
-        isSecurityCritical = SECURITY_FILE_PATTERNS.some(pattern => pattern.test(fileName));
-        currentFile = fileName;
-        
-        if (isSecurityCritical) {
-          securityFilesCount++;
-          filteredLines.push(line);
-        }
-      } else if (line.includes('────────────────') && currentFile && isSecurityCritical) {
-        filteredLines.push(line);
-      }
-    } else if (currentFile && isSecurityCritical) {
-      filteredLines.push(line);
-    }
-    
-    if (securityFilesCount > 50 && filteredLines.length > 10000) {
-      console.log('📦 Collected', securityFilesCount, 'security-critical files, stopping...');
-      filteredLines.push('\n\n... (additional files truncated for security analysis)');
-      break;
-    }
-  }
-  
-  console.log('✅ Filtered to', securityFilesCount, 'security-critical files');
-  return filteredLines.join('\n');
-};
-
-const parseDependenciesFromCode = (rawText) => {
-  const dependencies = [];
-  
-  console.log('🔍 Extracting dependencies from full code...');
-  
-  const packageJsonMatch = rawText.match(/File: .*package\.json[\s\S]*?```json\s*([\s\S]*?)```/i);
-  if (packageJsonMatch) {
-    try {
-      console.log('📦 Found package.json, parsing...');
-      const jsonStr = packageJsonMatch[1].trim();
-      const packageJson = JSON.parse(jsonStr);
-      
-      if (packageJson.dependencies) {
-        Object.entries(packageJson.dependencies).forEach(([name, version]) => {
-          dependencies.push({
-            ecosystem: 'npm',
-            name,
-            version: version.replace(/^\^|~/, ''),
-            source: 'package.json',
-            confirmed: true
-          });
-        });
-      }
-      
-      if (packageJson.devDependencies) {
-        Object.entries(packageJson.devDependencies).forEach(([name, version]) => {
-          dependencies.push({
-            ecosystem: 'npm',
-            name,
-            version: version.replace(/^\^|~/, ''),
-            source: 'package.json (dev)',
-            confirmed: true
-          });
-        });
-      }
-    } catch (e) {
-      console.warn('Could not parse package.json:', e.message);
-    }
-  }
-  
-  const requirementsMatch = rawText.match(/File: .*requirements\.txt[\s\S]*?```txt\s*([\s\S]*?)```/i);
-  if (requirementsMatch) {
-    console.log('🐍 Found requirements.txt');
-    const requirementsContent = requirementsMatch[1];
-    const lines = requirementsContent.split('\n');
-    
-    lines.forEach((line) => {
-      const cleanLine = line.trim();
-      if (cleanLine && !cleanLine.startsWith('#')) {
-        const match = cleanLine.match(/^([a-zA-Z0-9-_\[\]]+)([=<>!~]=?)?([0-9a-zA-Z.-]*)/);
-        if (match && match[1]) {
-          dependencies.push({
-            ecosystem: 'PyPI',
-            name: match[1],
-            version: match[3] || 'unknown',
-            source: 'requirements.txt',
-            confirmed: true
-          });
-        }
-      }
-    });
-  }
-  
-  const composerMatch = rawText.match(/File: .*composer\.json[\s\S]*?```json\s*([\s\S]*?)```/i);
-  if (composerMatch) {
-    try {
-      console.log('🎵 Found composer.json');
-      const composerJson = JSON.parse(composerMatch[1].trim());
-      
-      if (composerJson.require) {
-        Object.entries(composerJson.require).forEach(([name, version]) => {
-          dependencies.push({
-            ecosystem: 'Packagist',
-            name,
-            version: version.replace(/^\^|~/, ''),
-            source: 'composer.json',
-            confirmed: true
-          });
-        });
-      }
-    } catch (e) {
-      console.warn('Could not parse composer.json:', e.message);
-    }
-  }
-  
-  const pomMatch = rawText.match(/File: .*pom\.xml[\s\S]*?```xml\s*([\s\S]*?)```/i);
-  if (pomMatch) {
-    console.log('☕ Found pom.xml');
-    const pomContent = pomMatch[1];
-    
-    const depRegex = /<groupId>([^<]+)<\/groupId>\s*<artifactId>([^<]+)<\/artifactId>/g;
-    let depMatch;
-    
-    while ((depMatch = depRegex.exec(pomContent)) !== null) {
-      dependencies.push({
-        ecosystem: 'Maven',
-        name: `${depMatch[1]}:${depMatch[2]}`,
-        version: 'unknown',
-        source: 'pom.xml',
-        confirmed: true
-      });
-    }
-  }
-  
-  if (dependencies.length === 0) {
-    console.log('🔍 Scanning code for import/require patterns...');
-    
-    const importRegex = /(?:import|require)\(?['"]([@\w\-\/]+)['"]\)?/g;
-    let importMatch;
-    while ((importMatch = importRegex.exec(rawText)) !== null) {
-      if (importMatch[1] && !importMatch[1].startsWith('.')) {
-        dependencies.push({
-          ecosystem: 'npm',
-          name: importMatch[1],
-          version: 'unknown',
-          source: 'code pattern',
-          confirmed: false
-        });
-      }
-    }
-  }
-  
-  console.log(`🔍 Total dependencies found: ${dependencies.length}`);
-  
-  const uniqueDeps = [];
-  const seen = new Set();
-  
-  dependencies.forEach(dep => {
-    const key = `${dep.ecosystem}:${dep.name}@${dep.version}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniqueDeps.push(dep);
-    }
-  });
-  
-  return uniqueDeps;
-};
-
-const generateSummaryFromCode = (rawText, fileCount) => {
-  const hasReact = rawText.includes('import React') || rawText.includes('from "react"');
-  const hasVue = rawText.includes('Vue.component') || rawText.includes('new Vue(');
-  const hasAngular = rawText.includes('@angular') || rawText.includes('@Component');
-  const hasExpress = rawText.includes('express()') || rawText.includes('require(\'express\')');
-  const hasDjango = rawText.includes('django') || rawText.includes('from django');
-  const hasFlask = rawText.includes('flask') || rawText.includes('Flask(');
-  const hasSpring = rawText.includes('@SpringBootApplication') || rawText.includes('import org.springframework');
-  const hasNode = rawText.includes('require(') || rawText.includes('module.exports');
-  const hasPython = rawText.includes('def ') || rawText.includes('import ') && rawText.includes('.py');
-  const hasJava = rawText.includes('public class') || rawText.includes('.java');
-  
-  let techStack = [];
-  if (hasReact) techStack.push('React');
-  if (hasVue) techStack.push('Vue.js');
-  if (hasAngular) techStack.push('Angular');
-  if (hasExpress) techStack.push('Express.js');
-  if (hasDjango) techStack.push('Django');
-  if (hasFlask) techStack.push('Flask');
-  if (hasSpring) techStack.push('Spring Boot');
-  if (hasNode) techStack.push('Node.js');
-  if (hasPython) techStack.push('Python');
-  if (hasJava) techStack.push('Java');
-  
-  const stack = techStack.length > 0 ? techStack.join(' + ') : 'Unknown technology stack';
-  
-  return `${stack} application with ${fileCount} files analyzed via Repomix`;
-};
-
-const checkOSVVulnerabilities = async (dependencies) => {
-  if (dependencies.length === 0) {
-    return { vulnerabilities: [], summary: 'No dependencies found to check' };
-  }
-  
-  try {
-    const queries = dependencies
-      .map(dep => ({
-        version: dep.version || '0.0.0',
-        package: {
-          name: dep.name || 'unknown',
-          ecosystem: dep.ecosystem || 'npm'
-        }
-      }))
-      .filter(q => q.package.name !== 'unknown' && q.version !== '0.0.0');
-    
-    if (queries.length === 0) {
-      return { vulnerabilities: [], summary: 'No valid dependency versions found' };
-    }
-    
-    const proxyUrl = `${CLOUDFLARE_PROXY_URL}?url=${encodeURIComponent('https://api.osv.dev/v1/querybatch')}`;
-    
-    const response = await fetch(proxyUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ queries })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`OSV API error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    const vulnerabilities = [];
-    data.results?.forEach((result, index) => {
-      if (result.vulns && result.vulns.length > 0) {
-        const dep = dependencies[index];
-        result.vulns.forEach(vuln => {
-          vulnerabilities.push({
-            id: vuln.id || `osv-${index}-${Date.now()}`,
-            title: vuln.summary || `Vulnerability in ${dep.name}`,
-            severity: determineSeverity(vuln),
-            category: 'A06: Vulnerable Components',
-            riskScore: 8.0,
-            stride: 'Tampering',
-            cwe: extractCWE(vuln),
-            component: `${dep.name}@${dep.version}`,
-            description: vuln.details || `Known vulnerability in ${dep.name} version ${dep.version}`,
-            attackVector: 'Exploitation of known vulnerability in dependency',
-            impact: { confidentiality: 'HIGH', integrity: 'HIGH', availability: 'MEDIUM' },
-            likelihood: 'HIGH',
-            affectedAssets: ['Application', 'User Data'],
-            mitigation: [`Update ${dep.name} to a secure version`, 'Review dependency update process'],
-            codeExample: {
-              vulnerable: `// Using vulnerable version: ${dep.name}@${dep.version}`,
-              secure: `// Update to secure version (check OSV for fixed versions)`
-            },
-            testing: 'Dependency vulnerability scanning',
-            references: vuln.references?.map(ref => ref.url) || [],
-            confirmed: true,
-            source: 'OSV.dev API'
-          });
-        });
-      }
-    });
-    
-    return {
-      vulnerabilities,
-      summary: `Found ${vulnerabilities.length} confirmed vulnerabilities in ${dependencies.length} dependencies`
-    };
-    
-  } catch (error) {
-    console.error('OSV check failed:', error);
-    return { vulnerabilities: [], summary: 'Dependency check failed' };
-  }
-};
-
-const determineSeverity = (vuln) => {
-  const summary = vuln.summary?.toLowerCase() || '';
-  if (summary.includes('critical') || summary.includes('remote code execution')) return 'critical';
-  if (summary.includes('high') || summary.includes('sql injection') || summary.includes('xss')) return 'high';
-  if (summary.includes('medium') || summary.includes('information disclosure')) return 'medium';
-  return 'low';
-};
-
-const extractCWE = (vuln) => {
-  if (vuln.database_specific?.cwe_ids?.[0]) {
-    return `CWE-${vuln.database_specific.cwe_ids[0]}`;
-  }
-  return 'CWE-000';
-};
-
-const callEnhancedGeminiAPI = async (systemInfo, repoData, osvResults) => {
-  try {
-    console.log('🤖 Calling enhanced Gemini API...');
-    
-    const prompt = createEnhancedAIPrompt(systemInfo, repoData, osvResults);
-    
-    console.log('📝 Prompt length:', prompt.length);
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const aiText = response.text();
-    
-    console.log('📄 AI response received, parsing...');
-    
-    return parseEnhancedAIResponse(aiText, systemInfo, repoData, osvResults);
-  } catch (error) {
-    console.error('Enhanced Gemini API call failed:', error);
-    throw error;
-  }
-};
-
-const createEnhancedAIPrompt = (systemInfo, repoData, osvResults) => {
-  let codeAnalysisContent = '';
-  
-  if (repoData.rawText && repoData.rawText.length > 100) {
-    codeAnalysisContent = repoData.rawText.substring(0, 150000);
-  }
-  
-  const repoSummary = repoData.summary || `Repository analyzed: ${repoData.fileCount} files, ${repoData.dependencies.length} dependencies`;
-  const summaryFirstLine = repoSummary.split ? repoSummary.split('\n')[0] || repoSummary : repoSummary;
-  
-  const repomixSection = repoData.dependencies.length > 0 || repoData.fileCount > 0
-    ? `CODE ANALYSIS RESULTS (via Repomix - FULL CODE ANALYSIS):
-- Repository Summary: ${repoSummary}
-- Files Analyzed: ${repoData.fileCount} files${repoData.fileStructure && repoData.fileStructure.length > 0 ? ` (first 20): ${repoData.fileStructure.slice(0, 20).join(', ')}${repoData.fileStructure.length > 20 ? `... and ${repoData.fileStructure.length - 20} more` : ''}` : ''}
-- Dependencies Found: ${repoData.dependencies.length > 0 ? repoData.dependencies.map(d => `${d.name}@${d.version}`).slice(0, 15).join(', ') + (repoData.dependencies.length > 15 ? `... and ${repoData.dependencies.length - 15} more` : '') : 'None detected'}
-- Code Analysis: Full repository code analyzed (${repoData.rawText ? repoData.rawText.length : 0} characters)`
-    : `CODE ANALYSIS RESULTS: Repository was analyzed but no significant code files were found.`;
-
-  const osvSection = osvResults.vulnerabilities.length > 0
-    ? `CONFIRMED VULNERABILITIES (from OSV.dev):
-${osvResults.vulnerabilities.slice(0, 10).map(v => `- ${v.title} in ${v.component} (${v.severity})`).join('\n')}${osvResults.vulnerabilities.length > 10 ? `\n... and ${osvResults.vulnerabilities.length - 10} more confirmed vulnerabilities` : ''}`
-    : 'CONFIRMED VULNERABILITIES (from OSV.dev): No confirmed vulnerabilities found in dependencies';
-
-  return `
-You are a senior cybersecurity expert analyzing a repository. Return ONLY valid JSON.
-
-REPOSITORY: ${summaryFirstLine}
-
-USER-PROVIDED APPLICATION INFO:
-- Name: ${systemInfo.appName}
-- Type: ${systemInfo.appType}
-- Description: ${systemInfo.description || 'Not specified'}
-- Frontend: ${systemInfo.frontend.join(', ') || 'Not specified'}
-- Backend: ${systemInfo.backend.join(', ') || 'Not specified'}
-- Database: ${systemInfo.database.join(', ') || 'Not specified'}
-
-${repomixSection}
-
-${osvSection}
-
-FULL CODE ANALYSIS CONTENT (first 150K chars of ${repoData.rawText ? repoData.rawText.length : 0} total):
-${codeAnalysisContent}
-
-ANALYSIS INSTRUCTIONS:
-1. Compare user tech stack with actual repository contents
-2. If repository has different tech than user input, note this in "realityCheck"
-3. Include all OSV vulnerabilities as CONFIRMED threats
-4. Analyze the ACTUAL CODE for security vulnerabilities - look for:
-   - Hardcoded secrets and API keys
-   - SQL injection patterns
-   - XSS vulnerabilities
-   - Authentication/authorization flaws
-   - Insecure configurations
-   - Missing security headers
-   - Business logic vulnerabilities
-5. Reference specific files and line numbers when possible
-6. Focus on REAL vulnerabilities in the provided code, not generic advice
-
-RETURN THIS EXACT JSON FORMAT:
-{
-  "realityCheck": "Brief note about tech stack match/mismatch and code analysis quality",
-  "threats": [
-    {
-      "id": 1,
-      "title": "Specific vulnerability name",
-      "severity": "critical/high/medium/low",
-      "category": "OWASP category",
-      "riskScore": 1-10,
-      "stride": "STRIDE category",
-      "cwe": "CWE-XXX or empty",
-      "component": "Specific component/file",
-      "description": "Detailed explanation with file references",
-      "attackVector": "How attack happens",
-      "impact": { "confidentiality": "HIGH/MEDIUM/LOW", "integrity": "HIGH/MEDIUM/LOW", "availability": "HIGH/MEDIUM/LOW" },
-      "likelihood": "HIGH/MEDIUM/LOW",
-      "affectedAssets": ["Asset1", "Asset2"],
-      "mitigation": ["Step1", "Step2"],
-      "codeExample": { "vulnerable": "Actual vulnerable code from repository", "secure": "Fixed code" },
-      "testing": "Testing advice",
-      "references": ["url1"],
-      "confirmed": true/false,
-      "source": "OSV.dev API / Code Analysis / AI Prediction"
-    }
-  ],
-  "insight": "Overall analysis summary",
-  "riskScore": 1-100,
-  "analysisSummary": {
-    "confirmedVulns": ${osvResults.vulnerabilities.length},
-    "predictedVulns": 0,
-    "techRealityMatch": true/false,
-    "keyFindings": ["finding1", "finding2"]
-  }
-}
-`;
-};
-
-const parseEnhancedAIResponse = (aiText, systemInfo, repoData, osvResults) => {
-  try {
-    console.log('🔍 Parsing enhanced AI response...');
-    
-    let cleanedText = aiText
-      .replace(/```json\s*/g, '')
-      .replace(/```\s*$/g, '')
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-      .replace(/\\(?!["\\/bfnrt])/g, '\\\\')
-      .trim();
-    
-    const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON object found in response');
-    }
-    
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonMatch[0]);
-    } catch (parseError) {
-      console.warn('Initial parse failed, attempting to fix...', parseError.message);
-      
-      const fixedJson = jsonMatch[0]
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\t/g, '\\t')
-        .replace(/\\'/g, "'")
-        .replace(/\\(?![\\"\/bfnrt])/g, '\\\\');
-      
-      parsed = JSON.parse(fixedJson);
-    }
-    
-    console.log('✅ Successfully parsed AI response');
-    
-    const allThreats = [];
-    
-    osvResults.vulnerabilities.forEach((vuln, index) => {
-      allThreats.push({
-        ...vuln,
-        id: index + 1,
-        confirmed: true,
-        source: 'OSV.dev API (Confirmed)'
-      });
-    });
-    
-    if (parsed.threats && Array.isArray(parsed.threats)) {
-      parsed.threats.forEach((threat, index) => {
-        allThreats.push({
-          ...threat,
-          id: index + osvResults.vulnerabilities.length + 1,
-          confirmed: threat.confirmed || false,
-          source: threat.source || 'AI Prediction (Code Analysis)'
-        });
-      });
-    }
-    
-    const validatedThreats = allThreats.map((threat, index) => ({
-      id: threat.id || index + 1,
-      title: threat.title || 'Security Vulnerability',
-      severity: threat.severity || 'medium',
-      category: threat.category || 'A03: Injection',
-      riskScore: threat.riskScore || 7.0,
-      stride: threat.stride || 'Tampering',
-      cwe: threat.cwe || 'CWE-000',
-      component: threat.component || `${systemInfo.backend[0] || 'Unknown'} Component`,
-      description: (threat.description || 'Security vulnerability identified')
-        .replace(/[^\x20-\x7E]/g, ''),
-      attackVector: (threat.attackVector || 'Attack vector not specified')
-        .replace(/[^\x20-\x7E]/g, ''),
-      impact: threat.impact || { 
-        confidentiality: 'MEDIUM', 
-        integrity: 'MEDIUM', 
-        availability: 'LOW' 
-      },
-      likelihood: threat.likelihood || 'MEDIUM',
-      affectedAssets: threat.affectedAssets || ['Application Data'],
-      mitigation: (threat.mitigation || ['Implement security controls'])
-        .map(m => m.replace(/[^\x20-\x7E]/g, '')),
-      codeExample: threat.codeExample || {
-        vulnerable: '// Vulnerable code',
-        secure: '// Secure code'
-      },
-      testing: (threat.testing || 'Security testing required')
-        .replace(/[^\x20-\x7E]/g, ''),
-      references: threat.references || ['https://owasp.org'],
-      confirmed: threat.confirmed || false,
-      source: threat.source || 'Analysis'
-    }));
-    
-    console.log(`📊 Total threats after validation: ${validatedThreats.length}`);
-    
-    return {
-      threats: validatedThreats,
-      insight: (parsed.insight || 'Enhanced security analysis completed')
-        .replace(/\*\*/g, '')
-        .replace(/\*/g, '')
-        .replace(/[^\x20-\x7E]/g, ''),
-      riskScore: parsed.riskScore || calculateRiskScore(validatedThreats),
-      realityCheck: '',
-      analysisSummary: null
-    };
-    
-  } catch (error) {
-    console.error('Failed to parse enhanced AI response:', error);
-    console.log('📄 Raw AI response (first 500 chars):', aiText.substring(0, 500) + '...');
-    
-    return {
-      threats: [],
-      insight: 'Enhanced analysis failed due to parsing error. Using basic analysis.',
-      riskScore: 50,
-      realityCheck: '',
-      analysisSummary: {
-        confirmedVulns: osvResults?.vulnerabilities?.length || 0,
-        predictedVulns: 0,
-        techRealityMatch: false,
-        keyFindings: ['AI parsing error']
-      }
-    };
-  }
-};
-
-const analyzeWithAI = async (systemInfo) => {
-  try {
-    console.log('🔄 Attempting Gemini AI analysis...');
-    
-    const geminiResponse = await callGeminiAPI(systemInfo);
-    if (geminiResponse && geminiResponse.threats) {
-      console.log('✅ Gemini AI analysis successful');
-      return geminiResponse;
-    }
-    throw new Error('Gemini returned invalid response');
-  } catch (error) {
-    console.warn('⚠️ Gemini API failed, using static analysis:', error.message);
-    return generateStaticThreats(systemInfo);
-  }
-};
-
-const callGeminiAPI = async (systemInfo) => {
-  try {
-    const prompt = createAIPrompt(systemInfo);
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const aiText = response.text();
-    
-    return parseAIResponse(aiText, systemInfo);
-  } catch (error) {
-    console.error('Gemini API call failed:', error);
-    throw error;
-  }
-};
-
-const createAIPrompt = (systemInfo) => {
-  return `
-You are a senior cybersecurity expert. Analyze this application for security threats and return ONLY valid JSON.
-
-APPLICATION DETAILS:
-- Frontend: ${systemInfo.frontend.join(', ') || 'Not specified'}
-- Backend: ${systemInfo.backend.join(', ') || 'Not specified'}
-- Database: ${systemInfo.database.join(', ') || 'Not specified'}
-- Authentication: ${systemInfo.authentication.join(', ') || 'Not specified'}
-- Third-party: ${systemInfo.thirdParty.join(', ') || 'None'}
-- App Type: ${systemInfo.appType}
-- User Input Areas: ${systemInfo.userInputs.join(', ') || 'Various forms'}
-- Description: ${systemInfo.description || 'General application'}
-- Sensitive Data: ${systemInfo.sensitiveData.join(', ') || 'None specified'}
-
-Provide a comprehensive security analysis with OWASP Top 10 and STRIDE methodology.
-
-Return EXACTLY this JSON format:
-{
-  "threats": [
-    {
-      "id": 1,
-      "title": "Specific vulnerability name",
-      "severity": "critical/high/medium",
-      "category": "A01: Broken Access Control/A02: Cryptographic Failures/A03: Injection/etc",
-      "riskScore": 8.5,
-      "stride": "Spoofing/Tampering/Repudiation/Information Disclosure/Denial of Service/Elevation of Privilege",
-      "cwe": "CWE-XXX",
-      "component": "Specific component name",
-      "description": "Detailed explanation specific to the technologies mentioned",
-      "attackVector": "How the attack would be carried out",
-      "impact": {
-        "confidentiality": "HIGH/MEDIUM/LOW",
-        "integrity": "HIGH/MEDIUM/LOW", 
-        "availability": "HIGH/MEDIUM/LOW"
-      },
-      "likelihood": "HIGH/MEDIUM/LOW",
-      "affectedAssets": ["Asset1", "Asset2"],
-      "mitigation": ["Step 1", "Step 2", "Step 3"],
-      "codeExample": {
-        "vulnerable": "Vulnerable code example",
-        "secure": "Secure code example"
-      },
-      "testing": "Testing recommendations",
-      "references": ["https://reference1", "https://reference2"]
-    }
-  ],
-  "insight": "Comprehensive AI analysis summary with specific recommendations",
-  "riskScore": 75
-}
-
-Focus on REAL security risks based on the actual technologies mentioned. Be specific and practical.
-`;
-};
-
-const parseAIResponse = (aiText, systemInfo) => {
-  try {
-    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      
-      if (parsed.threats && Array.isArray(parsed.threats)) {
-        const validatedThreats = parsed.threats.map((threat, index) => ({
-          id: threat.id || index + 1,
-          title: threat.title || 'Security Vulnerability',
-          severity: threat.severity || 'medium',
-          category: threat.category || 'A03: Injection',
-          riskScore: threat.riskScore || 7.0,
-          stride: threat.stride || 'Tampering',
-          cwe: threat.cwe || 'CWE-000',
-          component: threat.component || `${systemInfo.backend[0]} Component`,
-          description: threat.description || 'Security vulnerability identified',
-          attackVector: threat.attackVector || 'Attack vector not specified',
-          impact: threat.impact || { confidentiality: 'MEDIUM', integrity: 'MEDIUM', availability: 'LOW' },
-          likelihood: threat.likelihood || 'MEDIUM',
-          affectedAssets: threat.affectedAssets || ['Application Data'],
-          mitigation: threat.mitigation || ['Implement security controls'],
-          codeExample: threat.codeExample || {
-            vulnerable: '// Vulnerable code',
-            secure: '// Secure code'
-          },
-          testing: threat.testing || 'Security testing required',
-          references: threat.references || ['https://owasp.org'],
-          confirmed: false,
-          source: 'AI Prediction'
-        }));
-        
-        return {
-          threats: validatedThreats,
-          insight: (parsed.insight || 'AI security analysis completed')
-            .replace(/\*\*/g, '')
-            .replace(/\*/g, ''),
-          riskScore: parsed.riskScore || calculateRiskScore(validatedThreats)
-        };
-      }
-    }
-    throw new Error('Invalid JSON format from AI');
-  } catch (error) {
-    console.error('Failed to parse AI response:', error);
-    throw new Error('AI response parsing failed');
-  }
-};
-
-const chatWithAI = async (message, systemInfo) => {
-  try {
-    const response = await callGeminiChat(message, systemInfo);
-    return response;
-  } catch (error) {
-    console.warn('⚠️ AI chat failed, using static responses');
-    return getStaticChatResponse(message);
-  }
-};
-
-const callGeminiChat = async (message, systemInfo) => {
-  try {
-    const appKeywords = [
-      'my app', 'my application', 'this app', 'our app', systemInfo.appName.toLowerCase(),
-      'feature', 'functionality', 'what does this app do', 'describe app', 'explain app',
-      'secure', 'security', 'protect', 'vulnerability', 'threat', 'risk', 'safe',
-      'improve', 'enhance', 'add feature', 'suggest feature', 'mitigation tips', 'mitigate', 'project', 'my project'
-    ];
-    
-    const isAppQuestion = appKeywords.some(keyword => 
-      message.toLowerCase().includes(keyword)
-    );
-    
-    const hasAppContext = systemInfo.appName && systemInfo.appType;
-    
-    let prompt;
-    
-    if (isAppQuestion && hasAppContext) {
-      prompt = `
-You are a helpful assistant for an application called "${systemInfo.appName}". 
-
-APPLICATION CONTEXT:
-- Application Name: ${systemInfo.appName}
-- Application Type: ${systemInfo.appType}
-- Description: ${systemInfo.description}
-- Frontend: ${systemInfo.frontend.join(', ')}
-- Backend: ${systemInfo.backend.join(', ')}
-- Database: ${systemInfo.database.join(', ')}
-- Authentication: ${systemInfo.authentication.join(', ')}
-- User Input Areas: ${systemInfo.userInputs.join(', ')}
-- Sensitive Data: ${systemInfo.sensitiveData.join(', ')}
-
-User Question: ${message}
-
-Provide a helpful response specifically about this application. Answer exactly what the user asked about your app.
-`;
-    } else {
-      prompt = `
-You are a helpful assistant.
-
-User Question: ${message}
-
-Provide a helpful and informative response. Answer the question directly without mentioning any specific application.
-`;
-    }
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const rawText = response.text();
-    
-    return rawText
-      .replace(/\*\*/g, '')
-      .replace(/\*/g, '')
-      .replace(/`/g, '')
-      .replace(/\n#### /g, '\n📌 ')
-      .replace(/\n### /g, '\n🔸 ')
-      .replace(/\n## /g, '\n🏷️ ')
-      .replace(/\n# /g, '\n📋 ')
-      .replace(/#/g, '');
-  } catch (error) {
-    console.error('Chat API call failed:', error);
-    throw error;
-  }
-};
-
+// ==================== STATIC THREATS (FALLBACK) ====================
 const generateStaticThreats = (systemInfo) => {
   const threats = [];
   let threatId = 1;
@@ -1211,23 +291,23 @@ const generateStaticThreats = (systemInfo) => {
 
   return {
     threats,
-    insight: generateAIInsight(threats, systemInfo),
+    insight: generateFallbackInsight(threats, systemInfo),
     riskScore: calculateRiskScore(threats)
   };
 };
 
-const generateAIInsight = (threats, systemInfo) => {
+const generateFallbackInsight = (threats, systemInfo) => {
   const criticalCount = threats.filter(t => t.severity === 'critical').length;
   const highCount = threats.filter(t => t.severity === 'high').length;
   const categories = [...new Set(threats.map(t => t.category))];
   
-  return `🤖 AI Analysis Complete: Identified ${threats.length} potential security threats in your ${systemInfo.appType}. 
+  return `🔍 STATIC ANALYSIS: Identified ${threats.length} potential security threats in your ${systemInfo.appType}. 
     
-Critical Priority: ${criticalCount} threats require immediate attention, particularly ${threats[0]?.title} which has a risk score of ${threats[0]?.riskScore}/10. 
+🚨 CRITICAL PRIORITY: ${criticalCount} threats require immediate attention, particularly ${threats[0]?.title} which has a risk score of ${threats[0]?.riskScore}/10. 
 
-Your application is most vulnerable to ${categories[0]} attacks. Based on your tech stack (${systemInfo.frontend[0]}, ${systemInfo.backend[0]}, ${systemInfo.database[0]}), I recommend implementing input validation and parameterized queries as the first line of defense.
+📊 Your application is most vulnerable to ${categories[0]} attacks. Based on your tech stack (${systemInfo.frontend[0]}, ${systemInfo.backend[0]}, ${systemInfo.database[0]}), I recommend implementing input validation and parameterized queries as the first line of defense.
 
-Estimated remediation time: ${Math.ceil(threats.length * 2)} hours. Priority order: ${criticalCount} critical → ${highCount} high severity issues. Implementation of top 3 recommendations will reduce your risk score by approximately 60%.`;
+⏱️ Estimated remediation time: ${Math.ceil(threats.length * 2)} hours. Priority order: ${criticalCount} critical → ${highCount} high severity issues. Implementation of top 3 recommendations will reduce your risk score by approximately 60%.`;
 };
 
 const calculateRiskScore = (threats) => {
@@ -1254,10 +334,11 @@ const getStaticChatResponse = (message) => {
   return "I understand your security question. For comprehensive analysis, please check the threat report above. For immediate concerns: always validate input, use HTTPS, and implement proper authentication.";
 };
 
+// ==================== MAIN COMPONENT ====================
 const ThreatModelingAssistant = () => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [scanType, setScanType] = useState('basic'); // 'basic' or 'advanced'
+  const [scanType, setScanType] = useState('basic');
   const [systemInfo, setSystemInfo] = useState({
     appType: '',
     appName: '',
@@ -1285,6 +366,10 @@ const ThreatModelingAssistant = () => {
   const [riskScore, setRiskScore] = useState(0);
   const [usingAI, setUsingAI] = useState(true);
   const [analysisSummary, setAnalysisSummary] = useState(null);
+  const [semgrepFindings, setSemgrepFindings] = useState([]);
+  const [osvFindings, setOsvFindings] = useState([]);
+
+  const API_BASE_URL = 'http://localhost:3001/api';
 
   const appTypes = ['Web Application', 'Mobile App', 'REST API', 'Desktop Application', 'Microservices', 'Mobile App + Web App', 'Mobile App + Desktop App', 'Desktop App + Web App', 'Web App + Desktop App + Mobile App'];
   
@@ -1389,41 +474,108 @@ const ThreatModelingAssistant = () => {
     'A10: SSRF'
   ];
 
-  const generateThreats = async () => {
-    setLoading(true);
-    setUsingAI(true);
-    setAnalysisSummary(null);
+ const generateThreats = async () => {
+  setLoading(true);
+  setUsingAI(true);
+  setAnalysisSummary(null);
+  
+  try {
+    let analysis;
     
-    try {
-      let analysis;
+    if (scanType === 'advanced' && gitUrl) {
+      const response = await fetch(`${API_BASE_URL}/analyze-enhanced`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ systemInfo, gitUrl })
+      });
       
-      if (scanType === 'advanced' && gitUrl) {
-        // Advanced scan with Repomix + OSV
-        analysis = await analyzeWithEnhancedAI(systemInfo, gitUrl);
-      } else {
-        // Basic scan - AI analysis based on description and tech stack
-        analysis = await analyzeWithAI(systemInfo);
+      if (!response.ok) {
+        throw new Error('Advanced scan failed');
       }
       
-      setThreats(analysis.threats);
-      setAiInsight(analysis.insight);
-      setRiskScore(analysis.riskScore);
-      generateChecklist(analysis.threats);
+      const data = await response.json();
       
-    } catch (error) {
-      console.error('Analysis failed:', error);
-      setUsingAI(false);
+      if (data.success) {
+        // CRITICAL FIX: Proper sorting function - critical first, then high, then medium, then low
+        const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+        
+        const sortedThreats = (data.threats || []).sort((a, b) => {
+          // Get order values, default to 999 if severity not found
+          const orderA = severityOrder[a.severity?.toLowerCase()] ?? 999;
+          const orderB = severityOrder[b.severity?.toLowerCase()] ?? 999;
+          return orderA - orderB;
+        });
+        
+        console.log('Sorted threats order:', sortedThreats.map(t => `${t.severity}: ${t.title}`)); // Debug log
+        
+        setThreats(sortedThreats);
+        setAiInsight(data.aiInsight || 'Analysis completed');
+        setRiskScore(data.riskScore || 50);
+        setSemgrepFindings(data.semgrepData?.findings || []);
+        setOsvFindings(data.osvResults?.vulnerabilities || []);
+        generateChecklist(sortedThreats);
+      } else {
+        throw new Error(data.error || 'Analysis failed');
+      }
       
-      const staticAnalysis = generateStaticThreats(systemInfo);
-      setThreats(staticAnalysis.threats);
-      setAiInsight(staticAnalysis.insight);
-      setRiskScore(staticAnalysis.riskScore);
-      generateChecklist(staticAnalysis.threats);
+    } else {
+      const response = await fetch(`${API_BASE_URL}/analyze-basic`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ systemInfo })
+      });
+      
+      if (response.ok) {
+        analysis = await response.json();
+        
+        // CRITICAL FIX: Proper sorting function
+        const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+        
+        const sortedThreats = (analysis.threats || []).sort((a, b) => {
+          const orderA = severityOrder[a.severity?.toLowerCase()] ?? 999;
+          const orderB = severityOrder[b.severity?.toLowerCase()] ?? 999;
+          return orderA - orderB;
+        });
+        
+        console.log('Sorted threats order:', sortedThreats.map(t => `${t.severity}: ${t.title}`)); // Debug log
+        
+        setThreats(sortedThreats);
+        setAiInsight(analysis.insight);
+        setRiskScore(analysis.riskScore);
+        generateChecklist(sortedThreats);
+      } else {
+        throw new Error('Basic scan failed');
+      }
     }
     
-    setLoading(false);
-    setStep(3);
-  };
+  } catch (error) {
+    console.error('Analysis failed:', error);
+    setUsingAI(false);
+    
+    const staticAnalysis = generateStaticThreats(systemInfo);
+    
+    // CRITICAL FIX: Proper sorting for static threats too
+    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    
+    const sortedThreats = (staticAnalysis.threats || []).sort((a, b) => {
+      const orderA = severityOrder[a.severity?.toLowerCase()] ?? 999;
+      const orderB = severityOrder[b.severity?.toLowerCase()] ?? 999;
+      return orderA - orderB;
+    });
+    
+    setThreats(sortedThreats);
+    setAiInsight(staticAnalysis.insight);
+    setRiskScore(staticAnalysis.riskScore);
+    generateChecklist(sortedThreats);
+  }
+  
+  setLoading(false);
+  setStep(3);
+};
 
   const handleChat = async () => {
     if (!chatInput.trim()) return;
@@ -1433,11 +585,27 @@ const ThreatModelingAssistant = () => {
     setChatInput('');
     
     try {
-      const aiResponse = await chatWithAI(chatInput, systemInfo);
-      setChatMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: aiResponse 
-      }]);
+      const response = await fetch(`${API_BASE_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          message: chatInput, 
+          systemInfo,
+          threats: threats.slice(0, 10)
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setChatMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: data.response 
+        }]);
+      } else {
+        throw new Error('Chat failed');
+      }
     } catch (error) {
       const fallbackResponse = getStaticChatResponse(chatInput);
       setChatMessages(prev => [...prev, { 
@@ -1505,7 +673,7 @@ THREAT MODEL REPORT
 ===================
 Application: ${systemInfo.appName}
 Type: ${systemInfo.appType}
-Scan Type: ${scanType === 'advanced' ? 'Advanced Scan (Repomix + OSV)' : 'Basic Scan'}
+Scan Type: ${scanType === 'advanced' ? 'Advanced Scan' : 'Basic Scan'}
 Git Repository: ${gitUrl || 'Not provided'}
 Generated: ${new Date().toLocaleString()}
 
@@ -1519,6 +687,8 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
    Risk Score: ${t.riskScore}/10
    Category: ${t.category}
    CWE: ${t.cwe}
+   ${t.file ? `File: ${t.file}` : ''}
+   ${t.line ? `Line: ${t.line}` : ''}
    
    Description: ${t.description}
    
@@ -1568,6 +738,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
     </div>
   );
 
+  // STEP 1 UI
   if (step === 1) {
     return (
       <div className="threat-modeling-container">
@@ -1833,6 +1004,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
     );
   }
 
+  // STEP 2 UI
   if (step === 2) {
     return (
       <div className="threat-modeling-container">
@@ -1882,20 +1054,25 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                   <>
                     <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
                       {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon"><FileCode size={14} /></div>}
-                      <span>Fetching repository</span>
-                      {loading && <div className="tm-step-status">Using Repomix...</div>}
+                      <span>Cloning repository</span>
+                      {loading && <div className="tm-step-status">Using git...</div>}
+                    </div>
+                    <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
+                      {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon"><Code size={14} /></div>}
+                      <span>Running Semgrep scan</span>
+                      {loading && <div className="tm-step-status">Analyzing code...</div>}
                     </div>
                     <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
                       {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon"><Package size={14} /></div>}
-                      <span>Analyzing dependencies</span>
-                      {loading && <div className="tm-step-status">Checking OSV...</div>}
+                      <span>Checking dependencies</span>
+                      {loading && <div className="tm-step-status">OSV API...</div>}
                     </div>
                   </>
                 )}
                 <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
                   {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">1</div>}
                   <span>Mapping attack surface</span>
-                  {loading && <div className="tm-step-status">Scanning code...</div>}
+                  {loading && <div className="tm-step-status">Processing...</div>}
                 </div>
                 <div className={`tm-progress-step ${loading ? 'active' : ''}`}>
                   {loading ? <Loader className="spin" size={16} /> : <div className="tm-step-icon">2</div>}
@@ -1949,6 +1126,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
     );
   }
 
+  // STEP 3 UI (Results)
   return (
     <div className="threat-modeling-container">
       <div className="tm-header">
@@ -1965,7 +1143,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
             {scanType === 'advanced' && (
               <div className="tm-enhanced-badge">
                 <Package size={14} />
-                <span>Advanced Scan (Repomix + OSV)</span>
+                <span>Advanced Scan</span>
               </div>
             )}
           </div>
@@ -2015,8 +1193,25 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
           <Brain size={24} />
           <h3>AI Security Insight</h3>
         </div>
-        <p>{aiInsight}</p>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{aiInsight}</p>
       </div>
+
+      {scanType === 'advanced' && semgrepFindings.length > 0 && (
+        <div className="tm-summary-stats" style={{ display: 'flex', gap: '16px', marginBottom: '20px', padding: '16px', background: '#f8fafc', borderRadius: '12px' }}>
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc2626' }}>{semgrepFindings.length}</div>
+            <div style={{ fontSize: '14px', color: '#666' }}>Code Vulnerabilities</div>
+          </div>
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#f59e0b' }}>{osvFindings.length}</div>
+            <div style={{ fontSize: '14px', color: '#666' }}>Dependency Vulnerabilities</div>
+          </div>
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#2563eb' }}>{threats.length}</div>
+            <div style={{ fontSize: '14px', color: '#666' }}>Total Issues</div>
+          </div>
+        </div>
+      )}
 
       <div className="tm-filters">
         <div className="tm-search">
@@ -2033,6 +1228,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
           <option value="critical">Critical</option>
           <option value="high">High</option>
           <option value="medium">Medium</option>
+          <option value="low">Low</option>
         </select>
         <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
           <option value="all">All Categories</option>
@@ -2087,7 +1283,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                           {threat.source && threat.source.includes('OSV') 
                             ? 'Confirmed via OSV' 
                             : threat.source && threat.source.includes('Code Analysis')
-                              ? 'Confirmed via Code Analysis'
+                              ? 'Confirmed via Semgrep'
                               : 'Confirmed'}
                         </span>
                       </span>
@@ -2139,6 +1335,19 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                       <div className="tm-info-row">
                         <strong>STRIDE:</strong> {threat.stride}
                       </div>
+                      {threat.file && (
+                        <div className="tm-info-row">
+                          <strong>File:</strong> 
+                          <span style={{ fontFamily: 'monospace', fontSize: '12px', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
+                            {threat.file}
+                          </span>
+                        </div>
+                      )}
+                      {threat.line && (
+                        <div className="tm-info-row">
+                          <strong>Line:</strong> {threat.line}
+                        </div>
+                      )}
                     </div>
 
                     <div className="tm-section">
@@ -2201,7 +1410,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                             <div className="tm-code-header">
                               <XCircle size={16} />
                               <span>Vulnerable Code</span>
-                              {threat.component && (
+                              {threat.file && (
                                 <span style={{ 
                                   fontSize: '12px', 
                                   color: '#666',
@@ -2211,10 +1420,8 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                                   padding: '2px 6px',
                                   borderRadius: '4px'
                                 }}>
-                                  📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
-                                  {threat.description && threat.description.match(/line\s+(\d+)/i) && 
-                                    `:${threat.description.match(/line\s+(\d+)/i)[1]}`
-                                  }
+                                  📁 {threat.file.includes('/') ? threat.file.split('/').pop() : threat.file}
+                                  {threat.line && `:${threat.line}`}
                                 </span>
                               )}
                               <button onClick={() => copyCode(threat.codeExample.vulnerable, `vuln-${threat.id}`)}>
@@ -2227,7 +1434,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                             <div className="tm-code-header">
                               <CheckCircle size={16} />
                               <span>Secure Code</span>
-                              {threat.component && (
+                              {threat.file && (
                                 <span style={{ 
                                   fontSize: '12px', 
                                   color: '#666',
@@ -2237,7 +1444,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
                                   padding: '2px 6px',
                                   borderRadius: '4px'
                                 }}>
-                                  📁 {threat.component.includes('/') ? threat.component.split('/').pop() : threat.component}
+                                  📁 {threat.file.includes('/') ? threat.file.split('/').pop() : threat.file}
                                 </span>
                               )}
                               <button onClick={() => copyCode(threat.codeExample.secure, `secure-${threat.id}`)}>
@@ -2288,7 +1495,7 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
               </div>
               <span>{checklist.filter(i => i.completed).length} / {checklist.length} completed</span>
             </div>
-            <div className="tm-checklist">
+            <div className="tm-checklist" style={{ maxHeight: '400px', overflowY: 'auto' }}>
               {checklist.map(item => (
                 <div key={item.id} className="tm-checklist-item">
                   <input
@@ -2359,12 +1566,12 @@ ${idx + 1}. ${t.title} [${t.severity.toUpperCase()}] ${t.confirmed ? '[CONFIRMED
               {scanType === 'advanced' && (
                 <>
                   <div className="tm-stat-item">
-                    <span>Confirmed Vulns</span>
-                    <strong>{threats.filter(t => t.confirmed).length}</strong>
+                    <span>Code Issues</span>
+                    <strong>{threats.filter(t => t.source && t.source.includes('Code Analysis')).length}</strong>
                   </div>
                   <div className="tm-stat-item">
-                    <span>Predicted Vulns</span>
-                    <strong>{threats.filter(t => !t.confirmed).length}</strong>
+                    <span>Dependency Issues</span>
+                    <strong>{threats.filter(t => t.source && t.source.includes('OSV')).length}</strong>
                   </div>
                 </>
               )}
